@@ -6,13 +6,17 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.net.InetAddress;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Calendar;
 import java.util.Date;
 
+import com.itahm.Agent;
 import com.itahm.json.JSONException;
 import com.itahm.json.JSONObject;
 
@@ -87,6 +91,15 @@ public class Util {
 		}
 	}
 	
+	public static JSONObject getJSONFromFile(Path path) throws IOException {
+		try {
+			return new JSONObject(new String(Files.readAllBytes(path), StandardCharsets.UTF_8));
+		}
+		catch (JSONException jsone) {
+			return null;
+		}
+	}
+	
 	/**
 	 * 
 	 * @param file destination
@@ -100,6 +113,30 @@ public class Util {
 		}
 		
 		return json;
+	}
+	
+	public static void putJSONtoFile(Path path, JSONObject json) throws IOException {
+		Files.write(path, json.toString().getBytes(StandardCharsets.UTF_8));
+	}
+	
+	public final static long getDirectorySize(Path parent, String fileName) throws IOException {
+		Path path = parent.resolve(fileName);
+		long size = 0;
+		
+		if (Files.isDirectory(path)) {
+			for (Path file : Files.newDirectoryStream(path)) {
+				if (Files.isRegularFile(file)) {
+					size += Files.size(file);
+				}
+			}
+		}
+		else if (Files.isDirectory(parent)) {
+			for (Path file : Files.newDirectoryStream(parent)) {
+				size += getDirectorySize(file, fileName);
+			}
+		}
+		
+		return size;
 	}
 	
 }

@@ -9,13 +9,11 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 import com.itahm.json.JSONObject;
-import com.itahm.table.Table;
 
 public class TopTable implements Comparator<String> {
 	
 	public enum Resource {
 		RESPONSETIME("responseTime"),
-		FAILURERATE("failureRate", true),
 		PROCESSOR("processor"),
 		MEMORY("memory"),
 		MEMORYRATE("memoryRate", true),
@@ -26,7 +24,7 @@ public class TopTable implements Comparator<String> {
 		THROUGHPUTERR("throughputErr");
 		
 		private final String resource;
-		private final boolean rate;
+		private final boolean isRate;
 		
 		private Resource(String resource) {
 			this(resource, false);
@@ -34,15 +32,11 @@ public class TopTable implements Comparator<String> {
 		
 		private Resource(String resource, boolean rate) {
 			this.resource = resource;
-			this.rate = rate;
+			this.isRate = rate;
 		}
 		
 		public String toString() {
 			return this.resource;
-		}
-		
-		public boolean isRate() {
-			return rate;
 		}
 	};
 	
@@ -61,10 +55,9 @@ public class TopTable implements Comparator<String> {
 	}
 	
 	public JSONObject getTop(int count) {
-		Table monitorTable = Agent.getTable(Table.Name.MONITOR);
-		JSONObject top = new JSONObject()
-			,resourceTop
-			,monitor;
+		JSONObject
+			top = new JSONObject(),
+			resourceTop;
 		List<String> list;
 		String ip;
 		
@@ -73,19 +66,13 @@ public class TopTable implements Comparator<String> {
 			list = new ArrayList<String>();
 			
 			this.top = this.map.get(resource);
-			this.sortByRate = resource.isRate();
+			this.sortByRate = resource.isRate;
 			
 			list.addAll(this.top.keySet());
 			Collections.sort(list, this);
 		
 			for (int i=0, _i= list.size(), n=0; i<_i && n<count; i++) {
 				ip = list.get(i);
-				
-				monitor = monitorTable.getJSONObject(ip);
-				
-				if (monitor == null || monitor.getBoolean("shutdown")) {
-					continue;
-				}
 				
 				resourceTop.put(ip,  this.top.get(ip).toJSONObject());
 				
@@ -111,17 +98,17 @@ public class TopTable implements Comparator<String> {
 		long l;
 		
 		if (this.sortByRate) {
-			l = v2.getRate() - v1.getRate();
+			l = v2.rate - v1.rate;
 			
 			if (l == 0) {
-				l = v2.getValue() - v1.getValue();
+				l = v2.value - v1.value;
 			}
 		}
 		else {
-			l = v2.getValue() - v1.getValue();
+			l = v2.value - v1.value;
 			
 			if (l == 0) {
-				l = v2.getRate() - v1.getRate();
+				l = v2.rate - v1.rate;
 			}
 		}
 		
@@ -129,22 +116,14 @@ public class TopTable implements Comparator<String> {
 	}
 	
 	public final static class Value {
-		private final long value;
-		private final long rate;
-		private final long index;
+		public final long value;
+		public final long rate;
+		public final long index;
 		
 		public Value(long value, long rate, String index) {
 			this.value = value;
 			this.rate = rate;
 			this.index = Long.parseLong(index);
-		}
-		
-		public long getValue() {
-			return this.value;
-		}
-		
-		public long getRate() {
-			return this.rate;
 		}
 		
 		public JSONObject toJSONObject() {

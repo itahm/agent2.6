@@ -2,75 +2,62 @@ package com.itahm.command;
 
 import java.io.IOException;
 
-import com.itahm.json.JSONException;
 import com.itahm.json.JSONObject;
 import com.itahm.Agent;
+import com.itahm.database.Data;
 import com.itahm.http.Response;
 
 public class Config extends Command {
 	
 	@Override
 	public void execute(JSONObject request, Response response) throws IOException {
-		try {
-			final String key = request.getString("key");
+		final String key = request.getString("key");
+		Data data = Agent.db().get("config");
+		
+		switch(key) {
+		case "rollingInterval":
+			int rollingInterval = request.getInt("value");
 			
-			switch(key) {
-			case "clean":
-				Agent.setClean(request.getInt("value"));
-				
-				break;
+			Agent.Setting.rollingInterval(rollingInterval);
+		
+			data.json.put("rollingInterval", rollingInterval);
 			
-			case "dashboard":
-				Agent.config(key, request.getJSONObject("value"));
-				
-				break;
+			break;
+		
+		case "top":
+			int top = request.getInt("value");
 			
-			case "sms":
-			case "menu":
-				Agent.config(key, request.getBoolean("value"));
-				
-				break;
+			Agent.Setting.top(top);
+		
+			data.json.put("top", top);
 			
-			case "interval":
-				Agent.setRollingInterval(request.getInt("value"));
-				
-				break;
-				
+			break;
+		
+		case "requestInterval":
+			long requestInterval = request.getLong("value");
 			
-			case "top":
-				Agent.config(key, request.getInt("value"));
+			Agent.Setting.requestInterval(requestInterval);
 			
-				break;
+			data.json.put("requestInterval", requestInterval);
 			
-			case "iftype":
-				Agent.setValidIFType(request.getString("value"));
-				
-				break;
+			break;
 			
-			case "requestTimer":
-				Agent.setInterval(request.getLong("value"));
-				
-				break;
+		case "smtp":
+			JSONObject smtp = request.getJSONObject("smtp");
 			
-			case "health":
-				Agent.setHealth(request.getInt("value"));
-				
-				break;
+			Agent.event().setSMTP(smtp);
 			
-			case "smtp":
-				if (!Agent.setSMTP(request.getJSONObject("value"))) {
-					response.setStatus(Response.Status.NOTIMPLEMENTED);
-				};
-				
-				break;
-				
-			default:
-				Agent.config(key, request.getString("value"));
-			}
+			data.json.put("smtp", smtp);
+			
+			break;
+			
+		case "config":
+			data.json.put("config", request.getJSONObject("value"));
+			
+			break;
 		}
-		catch (JSONException jsone) {
-			response.setStatus(Response.Status.BADREQUEST);
-		}
+		
+		data.save();
 	}
 	
 }

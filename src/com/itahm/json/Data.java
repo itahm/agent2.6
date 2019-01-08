@@ -8,12 +8,11 @@ import com.itahm.json.JSONObject;
 
 public abstract class Data {
 
-	private final JSONObject data;
+	private final JSONObject data = new JSONObject();
 	private final File root;
 	
 	public Data(File f) {
 		root = f;
-		data = new JSONObject();
 	}
 	
 	public void buildJSON(final long end, Calendar calendar) throws IOException {

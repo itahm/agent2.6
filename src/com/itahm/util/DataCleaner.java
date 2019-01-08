@@ -2,50 +2,76 @@ package com.itahm.util;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.Calendar;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
 
 abstract public class DataCleaner implements Runnable{
 
-	private long minDateMills;
-	private File dataRoot;
+	private final BlockingQueue<Long> queue = new LinkedBlockingQueue<>();
+	private final Thread thread = new Thread(this);
+	private File origin;
 	private int depth;
-	private Thread thread;
+	private boolean isRun = false;
+	private boolean cancel = false;
 	
-	public DataCleaner(File dataRoot, long minDateMills) throws IOException {
-		this(dataRoot, minDateMills, 0);
+	public DataCleaner(File origin) throws IOException {
+		this(origin, 0);
 	}
 	
-	public DataCleaner(File dataRoot, long minDateMills, int depth) throws IOException {
-		if (!dataRoot.isDirectory()) {
+	public DataCleaner(File origin, int depth) throws IOException {
+		if (!origin.isDirectory()) {
 			throw new IOException("Root is not directory.");
 		}
 		
-		this.dataRoot = dataRoot;
+		this.origin = origin;
 		this.depth = depth;
 		
-		this.minDateMills = minDateMills;
-		
-		this.thread = new Thread(this);
-			
 		this.thread.setDaemon(true);
 		this.thread.start();
 	}
 
-	private long emptyLastData(File directory, int depth) throws InterruptedException {
+	public boolean clean(int store) {
+		Calendar c = Calendar.getInstance();
+		
+		c.set(Calendar.HOUR_OF_DAY, 0);
+		c.set(Calendar.MINUTE, 0);
+		c.set(Calendar.SECOND, 0);
+		c.set(Calendar.MILLISECOND, 0);
+		
+		c.add(Calendar.DATE, store *-1);
+		
+		if (!isRun) {
+			this.queue.offer(c.getTimeInMillis());
+			
+			return isRun = true;
+		}
+		
+		return false;
+	}
+	
+	public void cancel() {
+		if (isRun) {
+			this.cancel = true;
+		}
+	}
+	
+	private long emptyLastData(File directory, long minDateMills, int depth) {
 		File [] files = directory.listFiles();
 		long count = 0;
 		
 		for (File file: files) {
-			if (this.thread.isInterrupted()) {
-				throw new InterruptedException();
+			if (this.cancel) {
+				return -1;
 			}
 			
 			if (file.isDirectory()) {
 				if (depth > 0) {
-					count += emptyLastData(file, depth -1);
+					count += emptyLastData(file, minDateMills, depth -1);
 				}
 				else {
 					try {
-						if (this.minDateMills > Long.parseLong(file.getName())) {
+						if (minDateMills > Long.parseLong(file.getName())) {
 							if (deleteDirectory(file)) {
 								count++;
 								
@@ -81,21 +107,32 @@ abstract public class DataCleaner implements Runnable{
     }
 	
 	abstract public void onDelete(File file);
-	abstract public void onComplete(long count);
+	abstract public void onComplete(long count, long elapse);
 	
 	@Override
-	public void run() {		
-		try {
-			onComplete(emptyLastData(this.dataRoot, this.depth));
-		} catch (InterruptedException e) {
-			onComplete(-1);
+	public void run() {
+		long
+			minDateMills
+			,start;
+		
+		while (!this.thread.isInterrupted()) {
+			start = System.currentTimeMillis();
+			
+			try {
+				minDateMills = this.queue.take();
+			} catch (InterruptedException ie) {
+				break;
+			}
+			
+			onComplete(emptyLastData(this.origin, minDateMills, this.depth), System.currentTimeMillis() - start);
+			
+			this.cancel = false;
+			this.isRun = false;
 		}
 	}
 	
-	public void cancel() {
-		if (this.thread != null) {
-			this.thread.interrupt();
-		}
+	public void close() {
+		this.thread.interrupt();
 	}
 	
 }

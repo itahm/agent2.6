@@ -6,21 +6,29 @@ import com.itahm.json.JSONException;
 import com.itahm.json.JSONObject;
 
 import com.itahm.Agent;
-import com.itahm.table.Table;
+import com.itahm.database.Data;
 import com.itahm.http.Response;
 
 public class Put extends Command {
 	
 	@Override
 	public void execute(JSONObject request, Response response) throws IOException {
-		Table table = Agent.getTable(request.getString("database"));
+		Data db = Agent.db().get(request.getString("database"));
 		
-		if (table == null) {
+		if (db == null) {
 			throw new JSONException("Database not found.");
 		}
-		else {
-			response.write(table.put(request.getString("key"), request.isNull("value")? null: request.getJSONObject("value")).toString());
+		
+		String key = request.getString("key");
+		
+		if (request.isNull("value")) {
+			db.json.remove(key);
 		}
+		else {
+			db.json.put(key, request.getJSONObject("value"));
+		}
+		
+		db.save();
 	}
 	
 }

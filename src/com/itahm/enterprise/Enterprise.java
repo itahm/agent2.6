@@ -9,73 +9,66 @@ import org.snmp4j.smi.OID;
 import org.snmp4j.smi.Variable;
 import org.snmp4j.smi.VariableBinding;
 
-import com.itahm.SNMPNode;
+import com.itahm.ITAhMNode;
 import com.itahm.json.JSONObject;
 
 public class Enterprise {
-
-	public final static OID	cisco = new OID(new int [] {1,3,6,1,4,1,9});
-	public final static OID	busyPer = new OID(new int [] {1,3,6,1,4,1,9,2,1,5,6});
-	public final static OID	cpmCPUTotal5sec = new OID(new int [] {1,3,6,1,4,1,9,9,109,1,1,1,1,3});
-	public final static OID	cpmCPUTotal5secRev = new OID(new int [] {1,3,6,1,4,1,9,9,109,1,1,1,1,6});
 	
-	public final static OID	dasan = new OID(new int [] {1,3,6,1,4,1,6296});
-	public final static OID	dsCpuLoad5s = new OID(new int [] {1,3,6,1,4,1,6296,9,1,1,1,8});
-	public final static OID	dsTotalMem = new OID(new int [] {1,3,6,1,4,1,6296,9,1,1,1,14});
-	public final static OID	dsUsedMem = new OID(new int [] {1,3,6,1,4,1,6296,9,1,1,1,15});
-	
-	public final static OID	axgate = new OID(new int [] {1,3,6,1,4,1,37288});
-	public final static OID	axgateCPU = new OID(new int [] {1,3,6,1,4,1,37288,1,1,3,1,1});
-	
-	public static void setEnterprise(PDU pdu, int pen) {
-		switch(pen) {
-		case 9: //CISCO
-			pdu.add(new VariableBinding(busyPer));
-			pdu.add(new VariableBinding(cpmCPUTotal5sec));
-			pdu.add(new VariableBinding(cpmCPUTotal5secRev));
+	public static void setEnterprisePDU(PDU pdu, String pen) {
+		String [] penArray = pen.split(".");
+		
+		if (penArray.length < 7) {
+			return;
+		}
+		
+		switch(penArray[6]) {
+		case "9": //CISCO
+			pdu.add(new VariableBinding(OID_busyPer));
+			pdu.add(new VariableBinding(OID_cpmCPUTotal5sec));
+			pdu.add(new VariableBinding(OID_cpmCPUTotal5secRev));
 			
 			break;
 			
-		case 6296: //DASAN
-			pdu.add(new VariableBinding(dsCpuLoad5s));
-			pdu.add(new VariableBinding(dsTotalMem));
-			pdu.add(new VariableBinding(dsUsedMem));
+		case "6296": //DASAN
+			pdu.add(new VariableBinding(OID_dsCpuLoad5s));
+			pdu.add(new VariableBinding(OID_dsTotalMem));
+			pdu.add(new VariableBinding(OID_dsUsedMem));
 			
 			break;
 			
-		case 37288: //AXGATE
-			pdu.add(new VariableBinding(axgateCPU));;
+		case "37288": //AXGATE
+			pdu.add(new VariableBinding(OID_axgateCPU));;
 			break;
 		}
 	}
 	
 	
-	public static boolean parseEnterprise(SNMPNode node, OID response, Variable variable, OID request) {
-		if (request.startsWith(cisco)) {
+	public static boolean parseEnterprise(ITAhMNode node, OID response, Variable variable, OID request) {
+		if (request.startsWith(OID_cisco)) {
 			return parseCisco(node, response, variable, request);
 		}
-		else if (request.startsWith(dasan)) {
+		else if (request.startsWith(OID_dasan)) {
 			return parseDasan(node, response, variable, request);
 		}
-		else if (request.startsWith(axgate)) {
+		else if (request.startsWith(OID_axgate)) {
 			return parseAgate(node, response, variable, request);
 		}
 		
 		return false;
 	}
 	
-	private static boolean parseCisco(SNMPNode node, OID response, Variable variable, OID request) {
+	private static boolean parseCisco(ITAhMNode node, OID response, Variable variable, OID request) {
 		Map<String, Integer> hrProcessorEntry = node.getProcessorEntry();
 		String index = Integer.toString(response.last());
 		
-		if (request.startsWith(busyPer) && response.startsWith(busyPer)) {
+		if (request.startsWith(OID_busyPer) && response.startsWith(OID_busyPer)) {
 			hrProcessorEntry.put(index, (int)((Gauge32)variable).getValue());
 		}
-		else if (request.startsWith(cpmCPUTotal5sec) && response.startsWith(cpmCPUTotal5sec)) {
+		else if (request.startsWith(OID_cpmCPUTotal5sec) && response.startsWith(OID_cpmCPUTotal5sec)) {
 			hrProcessorEntry.put(index, (int)((Gauge32)variable).getValue());
 			
 		}
-		else if (request.startsWith(cpmCPUTotal5secRev) && response.startsWith(cpmCPUTotal5secRev)) {
+		else if (request.startsWith(OID_cpmCPUTotal5secRev) && response.startsWith(OID_cpmCPUTotal5secRev)) {
 			hrProcessorEntry.put(index, (int)((Gauge32)variable).getValue());
 		}
 		else {
@@ -85,7 +78,7 @@ public class Enterprise {
 		return true;
 	}
 	
-	private static boolean parseDasan(SNMPNode node, OID response, Variable variable, OID request) {
+	private static boolean parseDasan(ITAhMNode node, OID response, Variable variable, OID request) {
 		Map<String, Integer> hrProcessorEntry = node.getProcessorEntry();
 		Map<String, JSONObject> hrStorageEntry = node.getStorageEntry();
 		String index = Integer.toString(response.last());
@@ -100,13 +93,13 @@ public class Enterprise {
 			storageData.put("hrStorageAllocationUnits", 1);
 		}
 		
-		if (request.startsWith(dsCpuLoad5s) && response.startsWith(dsCpuLoad5s)) {
+		if (request.startsWith(OID_dsCpuLoad5s) && response.startsWith(OID_dsCpuLoad5s)) {
 			hrProcessorEntry.put(index, (int)((Integer32)variable).getValue());
 		}
-		else if (request.startsWith(dsTotalMem) && response.startsWith(dsTotalMem)) {
+		else if (request.startsWith(OID_dsTotalMem) && response.startsWith(OID_dsTotalMem)) {
 			storageData.put("hrStorageSize", (int)((Integer32)variable).getValue());
 		}
-		else if (request.startsWith(dsUsedMem) && response.startsWith(dsUsedMem)) {
+		else if (request.startsWith(OID_dsUsedMem) && response.startsWith(OID_dsUsedMem)) {
 			storageData.put("hrStorageUsed", (int)((Integer32)variable).getValue());
 		}
 		else {
@@ -116,11 +109,11 @@ public class Enterprise {
 		return true;
 	}
 	
-	private static boolean parseAgate(SNMPNode node, OID response, Variable variable, OID request) {
+	private static boolean parseAgate(ITAhMNode node, OID response, Variable variable, OID request) {
 		Map<String, Integer> hrProcessorEntry = node.getProcessorEntry();
 		String index = Integer.toString(response.last());
 		
-		if (request.startsWith(axgateCPU) && response.startsWith(axgateCPU)) {
+		if (request.startsWith(OID_axgateCPU) && response.startsWith(OID_axgateCPU)) {
 			hrProcessorEntry.put(index,  (int)((Integer32)variable).getValue());
 		}
 		else {
@@ -129,4 +122,15 @@ public class Enterprise {
 		
 		return true;
 	}
+	
+	private final static OID OID_cisco = new OID(new int [] {1,3,6,1,4,1,9});
+	private final static OID OID_busyPer = new OID(new int [] {1,3,6,1,4,1,9,2,1,5,6});
+	private final static OID OID_cpmCPUTotal5sec = new OID(new int [] {1,3,6,1,4,1,9,9,109,1,1,1,1,3});
+	private final static OID OID_cpmCPUTotal5secRev = new OID(new int [] {1,3,6,1,4,1,9,9,109,1,1,1,1,6});
+	private final static OID OID_dasan = new OID(new int [] {1,3,6,1,4,1,6296});
+	private final static OID OID_dsCpuLoad5s = new OID(new int [] {1,3,6,1,4,1,6296,9,1,1,1,8});
+	private final static OID OID_dsTotalMem = new OID(new int [] {1,3,6,1,4,1,6296,9,1,1,1,14});
+	private final static OID OID_dsUsedMem = new OID(new int [] {1,3,6,1,4,1,6296,9,1,1,1,15});
+	private final static OID OID_axgate = new OID(new int [] {1,3,6,1,4,1,37288});
+	private final static OID OID_axgateCPU = new OID(new int [] {1,3,6,1,4,1,37288,1,1,3,1,1});
 }
