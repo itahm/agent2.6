@@ -43,7 +43,12 @@ public class EventManager extends DailyFile {
 		}
 		
 		for (Object key : this.log.keySet()) {
-			this.index = Math.max(this.index, Long.parseLong((String)key));
+			try {
+				this.index = Math.max(this.index, Long.parseLong((String)key));
+			}
+			catch (NumberFormatException nfe) {
+				System.err.print(nfe);
+			}
 		}
 		
 		setSMTP(Agent.Setting.smtp());
@@ -128,7 +133,8 @@ public class EventManager extends DailyFile {
 	public synchronized void put(JSONObject event, boolean broadcast) {
 		String index = Long.toString(this.index++);
 		
-		this.log.put("event", index);
+		event.put("event", index);
+		event.put("date", Calendar.getInstance().getTimeInMillis());
 		
 		try {
 			if (super.roll()) {

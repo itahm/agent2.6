@@ -7,11 +7,11 @@ import com.itahm.http.Response;
 import com.itahm.json.JSONException;
 import com.itahm.json.JSONObject;
 
-public class Critical extends Command {
+public class Speed extends Command {
 
 	@Override
 	public void execute(JSONObject request, Response response) throws IOException, JSONException {
-		Agent.node().setCritical(request.getString("id"), request.getJSONObject("critical"));
+		Agent.node().setSpeed(request.getString("id"), request.getJSONObject("speed"));
 	}
 
 }

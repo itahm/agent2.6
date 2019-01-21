@@ -1,5 +1,6 @@
 package com.itahm;
 
+import java.io.File;
 import java.io.IOException;
 import java.math.BigInteger;
 import java.nio.file.Files;
@@ -11,6 +12,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import org.snmp4j.mp.SnmpConstants;
 
 import com.itahm.TopTable.Resource;
+import com.itahm.command.Search;
 import com.itahm.database.Data;
 import com.itahm.json.JSONException;
 import com.itahm.json.JSONObject;
@@ -18,6 +20,7 @@ import com.itahm.node.Node;
 import com.itahm.node.ICMPNode;
 import com.itahm.node.NodeListener;
 import com.itahm.node.TCPNode;
+import com.itahm.util.Network;
 import com.itahm.util.Util;
 
 public class NodeManager implements NodeListener {
@@ -37,47 +40,79 @@ public class NodeManager implements NodeListener {
 		this.posTable = Agent.db().get("position").json;
 		
 		Files.createDirectories(this.nodeRoot);
-		
-		load();
 	}
 
-	public String create(JSONObject json) {
-		String id = String.format("%s%d", PREFIX_NODE, ++this.nodeNum);
+	public synchronized String detect(String ip, String profile) throws IOException {
+		String id = isInUseIP(ip);
 		
-		try {
-			Path
-				nodeDir = nodeRoot.resolve(id),
-				nodePath;
-			NodeData data;
+		// 생성
+		if (id == null) {
+			id = createNode(new JSONObject().put("ip", ip));
+		}
+		// else 수정
+		
+		NodeData data = this.map.get(id);
+		
+		data.json.put("monitor", new JSONObject()
+			.put("protocol", "snmp")
+			.put("status", true)
+			.put("profile", profile));
+		
+		createMonitor(id, data);
+		
+		return id;
+	}
+	
+	// User로 부터, 무조건 생성 | TCPNode 인 경우 별도 처리해야함
+	public synchronized String create(JSONObject base) throws IOException {
+		String id;
+		
+		if (base.has("ip")) {
+			id = this.isInUseIP(base.getString("ip"));
 			
-			Files.createDirectory(nodeDir);
-			
-			nodePath = nodeDir.resolve(id);
-			
-			Util.putJSONtoFile(nodePath, json);
-			
-			data = new NodeData(this, nodePath, id);
-			
-			this.map.put(id, data);
-			
-			if (data.node != null) {
-				data.node.ping(Agent.Setting.requestInterval());
+			if (id != null) {
+				return null;
 			}
-			
-		} catch (IOException e) {
-			e.printStackTrace();
-			
-			return null;
+		}
+		
+		id = createNode(base);;
+		
+		if (base.has("type") && base.getString("type").equals("application")) {
+			setMonitor(id, "tcp");
 		}
 		
 		return id;
 	}
 	
-	public void remove(String id) {
+	public String createNode(JSONObject base) throws IOException {
+		String id = String.format("%s%d", PREFIX_NODE, ++this.nodeNum);
+			
+		base.put("id", id);
+			
+		Path
+			nodeDir = nodeRoot.resolve(id),
+			nodePath;
+		NodeData data;
+	
+		Files.createDirectory(nodeDir);
+		
+		nodePath = nodeDir.resolve("node");
+		
+		Util.putJSONtoFile(nodePath, new JSONObject().put("base", base));
+		
+		data = new NodeData(nodePath, id);
+			
+		this.map.put(id, data);
+		
+		return id;
+	}
+	
+	public void remove(String id) throws IOException {
 		close(id);
 		
+		NodeData data = this.map.get(id);
 		JSONObject
-			node = this.map.get(id).json,
+			node = data.json,
 			posTable = this.posTable.getJSONObject("position");
 		
 		if (posTable.has(id)) {
@@ -96,7 +131,7 @@ public class NodeManager implements NodeListener {
 			posTable.remove(id);
 		}
 		
-		switch (node.getString("type")) {
+		switch (node.getJSONObject("base").getString("type")) {
 		case "group":
 			JSONObject child;
 			
@@ -111,20 +146,69 @@ public class NodeManager implements NodeListener {
 			break;
 		}
 		
+		data.remove();
+		
 		this.map.remove(id);
+	}
+	
+	public String isInUseIP(String ip) {
+		JSONObject base;
+		
+		for (String id : this.map.keySet()) {
+			base = this.map.get(id).json.getJSONObject("base");
+			
+			if (base.has("ip") && base.getString("ip").equals(ip)) {
+				return id;
+			}
+		}
+		
+		return null;
 	}
 	
 	public String getNodeName(String id) {
 		NodeData data = this.map.get(id);
 		
 		if (data == null) {
-			return "";
+			return id;
 		}
 		
 		JSONObject base = data.json.getJSONObject("base");
-		String name = base.has("name")? base.getString("name"): "";
+		String name;
 		
-		return name.length() > 0? name: id;
+		for (String key : new String [] {"name", "ip"}) {
+			if (base.has(key)) {
+				name = base.getString(key);
+				
+				if (name.length() > 0) {
+					return name;
+				}
+			}
+		}
+		
+		return id;
+	}
+	
+	public JSONObject get() {
+		JSONObject
+			dump = new JSONObject(),
+			node;
+		NodeData data;
+		
+		for (String id : this.map.keySet()) {
+			data = this.map.get(id);
+			
+			node = new JSONObject();
+			
+			dump.put(id, node);
+			
+			node.put("base", data.json.getJSONObject("base"));
+			
+			if (data.json.has("monitor")) {
+				node.put("monitor", data.json.getJSONObject("monitor"));
+			}
+		}
+		
+		return dump;
 	}
 	
 	public JSONObject get(String id) {
@@ -157,21 +241,11 @@ public class NodeManager implements NodeListener {
 		data.node = node;
 	}
 	
-	public void setBase(String id, JSONObject base) throws IOException {
-		NodeData data = this.map.get(id);
-		
-		if (data != null) {
-			data.json.put("base", base);
-			
-			data.save();
-		}
-	}
-	
-	public void setMonitor(String id, JSONObject monitor) throws IOException {
+	public boolean setMonitor(String id, String protocol) throws IOException {
 		NodeData data = this.map.get(id);
 		
 		if (data == null) {
-			return;
+			return false;
 		}
 		
 		if (data.node != null) {
@@ -180,23 +254,45 @@ public class NodeManager implements NodeListener {
 			data.node = null;
 		}
 		
-		if (monitor == null) {
-			data.json.remove("monitor");
-		}
-		else {
-			data.json.put("monitor", monitor);
-			
-			Node node = createNode(this, id, data);
-			
-			if (node != null) {
-				node.ping(0);
-			}
-		}		
+		JSONObject base = data.json.getJSONObject("base");
 		
+		if (!base.has("ip")) {
+			return false;
+		}
+		
+		// 일단 실패했다고 가정하고 지워 놓는다.
+		data.json.remove("monitor");
 		data.save();
+		
+		if (protocol != null) {
+			switch(protocol.toLowerCase()) {
+			case "snmp":
+				new Search().execute(new Network(base.getString("ip"), 32), id);
+				
+				break;
+			case "icmp":
+				new ICMPNode(this, id, base.getString("ip")).ping(0);
+				
+				break;
+			case "tcp":
+				new TCPNode(this, id, base.getString("ip")).ping(0);
+				
+				break;
+			}
+		}
+		
+		return true;
 	}
 	
-	public void setUpDown(String id, JSONObject updown) {
+	public void setCritical(String id, JSONObject critical) {
+		NodeData data = this.map.get(id);
+		
+		if (data != null && data.node instanceof ITAhMNode) {
+			((ITAhMNode)data.node).setCritical(critical);
+		}
+	}
+	
+	public void setUpDown(String id, JSONObject updown) throws IOException {
 		NodeData data = this.map.get(id);
 		
 		if (data != null && data.node instanceof ITAhMNode) {
@@ -212,14 +308,14 @@ public class NodeManager implements NodeListener {
 		}
 	}
 	
-	public void save (String id, JSONObject snmp) throws IOException {
+	public void save (String id, String key, JSONObject jsono) throws IOException {
 		NodeData data = this.map.get(id);
 		
 		if (data == null) {
 			return;
 		}
 		
-		data.json.put("snmp", snmp);
+		data.json.put(key, jsono);
 		
 		data.save();
 	}
@@ -246,7 +342,7 @@ public class NodeManager implements NodeListener {
 		return backup;
 	}
 	
-	public void load() throws NumberFormatException, IOException {		
+	public void start() throws IOException {		
 		NodeData data;
 		String id;
 	
@@ -257,13 +353,9 @@ public class NodeManager implements NodeListener {
 			
 			id = path.getFileName().toString();
 			
-			data = new NodeData(this, path, id);
+			data = new NodeData(path.resolve("node"), id);
 			
 			this.map.put(id, data);
-			
-			if (data.node != null) {
-				data.node.ping(Agent.Setting.requestInterval());
-			}
 			
 			this.nodeNum = Math.max(this.nodeNum, Long.valueOf(id.replace(PREFIX_NODE, "")));			
 		}
@@ -335,8 +427,20 @@ public class NodeManager implements NodeListener {
 		return count;
 	}
 	
+	public void onCritical(Node node, boolean status) {
+		NodeData data = this.map.get(node.id);
+		
+		if (data == null) {
+			return;
+		}
+		
+		JSONObject monitor = data.json.getJSONObject("monitor");
+		
+		monitor.put("critical", status);
+	}
+	
 	/**
-	 * ICMPNode로 부터 호출
+	 * Node로 부터 호출
 	 */
 	@Override
 	public void onSuccess(Node node, long time) {
@@ -346,10 +450,16 @@ public class NodeManager implements NodeListener {
 			return;
 		}
 		
-		JSONObject monitor = data.json.getJSONObject("monitor");
+		String
+			protocol =
+				node instanceof ICMPNode? "ICMP":
+				node instanceof TCPNode? "TCP": "",
+			name = getNodeName(node.id);
 		
-		if (!monitor.getBoolean("status")) {
-			monitor.put("status", true);
+		if (data.node == null) {
+			data.json.put("monitor", new JSONObject()
+				.put("protocol", protocol.toLowerCase())
+				.put("status", true));
 			
 			try {
 				data.save();
@@ -357,18 +467,45 @@ public class NodeManager implements NodeListener {
 				System.err.print(ioe);
 			}
 			
+			data.node = node;
+			
 			Agent.event().put(new JSONObject()
-				.put("origin", "status")
+				.put("origin", "test")
 				.put("id", node.id)
+				.put("protocol", protocol.toLowerCase())
+				.put("name", name)
 				.put("status", true)
-				.put("message", String.format("%s 응답 정상.", getNodeName(node.id))), false);
+				.put("message", String.format("%s %s 등록 성공", name, protocol)), false);
+			
+			node.ping(0);
 		}
-		
-		node.ping(Agent.Setting.requestInterval());
+		else {
+			JSONObject monitor = data.json.getJSONObject("monitor");	
+			
+			if (!monitor.getBoolean("status")) {
+				monitor.put("status", true);
+				
+				try {
+					data.save();
+				} catch (IOException ioe) {
+					System.err.print(ioe);
+				}
+				
+				Agent.event().put(new JSONObject()
+					.put("origin", "status")
+					.put("id", node.id)
+					.put("protocol", protocol.toLowerCase())
+					.put("name", name)
+					.put("status", true)
+					.put("message", String.format("%s %s 응답 정상.", name, protocol)), false);
+			}
+			
+			node.ping(Agent.Setting.requestInterval());
+		}
 	}
 
 	/**
-	 * ICMPNode로 부터 호출
+	 * Node로 부터 호출
 	 */
 	@Override
 	public void onFailure(Node node) {
@@ -378,26 +515,48 @@ public class NodeManager implements NodeListener {
 			return;
 		}
 		
-		JSONObject monitor = data.json.getJSONObject("monitor");
+		String
+			protocol =
+				node instanceof ICMPNode? "ICMP":
+				node instanceof TCPNode? "TCP": "";
 		
-		if (monitor.getBoolean("status")) {
-			monitor.put("status", false);
-			
-			try {	
-				data.save();
-				
-			} catch (IOException ioe) {
-				System.err.print(ioe);
-			}
+		if (data.node == null) {
+			String name = getNodeName(node.id);
 			
 			Agent.event().put(new JSONObject()
-				.put("origin", "status")
+				.put("origin", "test")
 				.put("id", node.id)
+				.put("protocol", protocol.toLowerCase())
+				.put("name", name)
 				.put("status", false)
-				.put("message", String.format("%s 응답 없음.", getNodeName(node.id))), false);
+				.put("message", String.format("%s %s 등록 실패", name, protocol)), false);
 		}
-		
-		data.node.ping(0);
+		else {
+			JSONObject monitor = data.json.getJSONObject("monitor");
+			
+			if (monitor.getBoolean("status")) {
+				String name = getNodeName(node.id);
+				
+				monitor.put("status", false);
+				
+				try {
+					data.save();
+					
+				} catch (IOException ioe) {
+					System.err.print(ioe);
+				}
+				
+				Agent.event().put(new JSONObject()
+					.put("origin", "status")
+					.put("id", node.id)
+					.put("protocol", protocol.toLowerCase())
+					.put("name", name)
+					.put("status", false)
+					.put("message", String.format("%s %s 응답 없음.", name, protocol)), false);
+			}
+			
+			data.node.ping(0);
+		}
 	}
 
 	
@@ -407,7 +566,7 @@ public class NodeManager implements NodeListener {
 		}
 	}
 
-	private Node createNode(NodeListener listener, String id, Data data) throws IOException {
+	private Node createMonitor(String id, NodeData data) throws IOException {
 		Node node = null;
 		
 		try {
@@ -421,16 +580,33 @@ public class NodeManager implements NodeListener {
 					profileTable = Agent.db().get("profile").json,
 					profile = profileTable.getJSONObject(monitor.getString("profile"));
 				
-				if (profile.getInt("version") == SnmpConstants.version3) {
-					node = new SNMPV3Node(listener, id, base.getString("ip"), profile.getInt("udp"), profile.getString("user"), profile.getInt("level"));
+				switch(profile.getString("version")) {
+				case "v3":
+					node = new SNMPV3Node(this, id,
+						base.getString("ip"),
+						profile.getInt("udp"),
+						profile.getString("user"),
+						profile.getInt("level"));
 					
 					((SNMPV3Node)node).setUSM(profile);
-				}
-				else {
-					node = new SNMPDefaultNode(listener, id, base.getString("ip"), profile.getInt("udp"), profile.getString("community"));
+					
+					break;
+				case "v2c":
+					node = new SNMPDefaultNode(this, id,
+						base.getString("ip"),
+						profile.getInt("udp"),
+						profile.getString("community"));
+					
+					break;
+				default:
+					node = new SNMPDefaultNode(this, id,
+						base.getString("ip"),
+						profile.getInt("udp"),
+						profile.getString("community"),
+						SnmpConstants.version1);
 				}
 				
-				if (node != null && data.json.has("snmp")) {
+				if (data.json.has("snmp")) {
 					JSONObject 
 						snmp = data.json.getJSONObject("snmp"),
 						speed = new JSONObject(),
@@ -441,32 +617,35 @@ public class NodeManager implements NodeListener {
 						index, resource;
 					
 					for (Object key1 : snmp.keySet()) {
-						resource = (String)key1;
-						
-						entry = snmp.getJSONObject(resource);
-						
-						for (Object key2 : entry.keySet()) {
-							index = (String)key2;
+						switch(resource = (String)key1) {
+						case "hrProcessorEntry":
+						case "hrStorageEntry":
+						case "ifEntry":
+							entry = snmp.getJSONObject(resource);
 							
-							indexData = entry.getJSONObject(index);
-							
-							if (indexData.has("updown")) {
-								updown.put(index, indexData.getBoolean("updown"));
-							}
-							
-							if (indexData.has("speed")) {
-								speed.put(index, indexData.getLong("speed"));
-							}
-							
-							if (indexData.has("critical")) {
-								if (!critical.has(resource)) {
-									critical.put(resource, new JSONObject());
+							for (Object key2 : entry.keySet()) {
+								index = (String)key2;
+								
+								indexData = entry.getJSONObject(index);
+								
+								if (indexData.has("updown")) {
+									updown.put(index, indexData.getBoolean("updown"));
 								}
-							
-								critical.getJSONObject(resource)
-									.put(index, new JSONObject()
-										.put("critical", indexData.getInt("critical"))
-										.put("status", indexData.has("status")? indexData.getBoolean("status"): false));
+								
+								if (indexData.has("speed")) {
+									speed.put(index, indexData.getLong("speed"));
+								}
+								
+								if (indexData.has("critical")) {
+									if (!critical.has(resource)) {
+										critical.put(resource, new JSONObject());
+									}
+								
+									critical.getJSONObject(resource)
+										.put(index, new JSONObject()
+											.put("critical", indexData.getInt("critical"))
+											.put("status", indexData.has("status")? indexData.getBoolean("status"): false));
+								}
 							}
 						}
 					}
@@ -487,12 +666,12 @@ public class NodeManager implements NodeListener {
 				break;
 				
 			case "icmp":
-				node = new ICMPNode(listener, id, base.getString("ip"));
+				node = new ICMPNode(this, id, base.getString("ip"));
 				
 				break;
 				
 			case "tcp":
-				node = new TCPNode(listener, id, base.getString("ip"), monitor.getInt("udp"));
+				node = new TCPNode(this, id, base.getString("ip"));
 				
 				break;
 				
@@ -504,20 +683,45 @@ public class NodeManager implements NodeListener {
 			throw new IOException(jsone);
 		}
 	
+		if (node != null) {
+			node.ping(0);
+		}
+		
+		data.node = node;
+		
 		return node;
-
 	}
 	
 	private class NodeData extends Data {
 
-		private Node node; 
+		private Node node;
 		
-		private NodeData(NodeListener listener, Path path, String id) throws IOException {
+		private NodeData(Path path, String id) throws IOException {
 			super(path);
 			
 			if (super.json.has("monitor")) {
-				this.node = createNode(listener, id, this);
+				this.node = createMonitor(id, this);
 			}
 		}
+		
+		private void remove() {
+			final File dir = super.path.getParent().toFile();
+			
+			if (node != null) {
+				node.close();
+			}
+			
+			Thread thread = new Thread(new Runnable () {
+
+				@Override
+				public void run() {
+					Util.deleteDirectory(dir);
+				}
+			});
+			
+			thread.setDaemon(true);
+			thread.start();
+		}
 	}
+	
 }

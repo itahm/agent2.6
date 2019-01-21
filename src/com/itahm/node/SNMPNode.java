@@ -1,5 +1,6 @@
 package com.itahm.node;
 
+import java.io.Closeable;
 import java.io.IOException;
 import java.util.Vector;
 
@@ -19,7 +20,7 @@ import org.snmp4j.transport.DefaultUdpTransportMapping;
 
 import com.itahm.json.JSONException;
 
-abstract public class SNMPNode extends ICMPNode {
+abstract public class SNMPNode extends ICMPNode implements Closeable {
 
 	private final Snmp snmp;
 	protected final Target target;
@@ -29,6 +30,8 @@ abstract public class SNMPNode extends ICMPNode {
 
 		this.snmp = new Snmp(new DefaultUdpTransportMapping());
 		this.target = target;
+		
+		this.snmp.listen();
 	}
 	
 	public void setUSM(OctetString user, OID authProtocol, OctetString authPassphrase, OID privProtocol, OctetString privPassphrase) {
@@ -104,6 +107,16 @@ abstract public class SNMPNode extends ICMPNode {
 		}
 		
 		return pdu;
+	}
+	
+	public void close() {
+		super.close();
+		
+		try {
+			this.snmp.close();
+		} catch (IOException ioe) {
+			System.err.print(ioe);
+		}
 	}
 	
 	abstract public PDU createPDU();

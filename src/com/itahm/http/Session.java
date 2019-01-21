@@ -10,7 +10,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public class Session {
 
 	private static final Map<String, Session> sessions = new ConcurrentHashMap<>();
-	private static final Timer timer = new Timer(true);
+	private static final Timer timer = new Timer("ITAhM Session timer", true);
 	
 	private final Map<String, Object> attribute = new HashMap<>();
 	private long timeout = 60*60*1000;

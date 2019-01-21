@@ -68,7 +68,7 @@ public class Database {
 	private void load() throws IOException {
 		Data data;
 		
-		for (String table : new String [] {"account", "profile", "icon", "position", "email", "setting"}) {
+		for (String table : new String [] {"account", "profile", "icon", "config", "position", "email", "setting"}) {
 			data = new Data(this.dataRoot.resolve(table));
 			
 			this.map.put(table, data);
@@ -80,17 +80,30 @@ public class Database {
 						.put("username", "root")
 						.put("password", "63a9f0ea7bb98050796b649e85481845")
 						.put("level", 0));
+					
+					data.save();
 				}
 				
 				break;
-				
 			case "profile":
 				if (data.json.length() == 0) {
 					data.json.put("default", new JSONObject()
 						.put("udp", 161)
 						.put("community", "public")
 						.put("version", "v2c"));
+					
+					data.save();
 				}
+				
+				break;
+			case "position":
+				if (data.json.length() == 0){
+					data.json.put("position", new JSONObject());
+					
+					data.save();
+				}
+				
+				break;
 			}
 		}
 	}

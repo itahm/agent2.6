@@ -11,14 +11,30 @@ public class Node extends Command {
 	
 	@Override
 	public void execute(JSONObject request, Response response) throws IOException {
-		JSONObject node = Agent.node().get(request.getString("id"));
-		
-		// snmp 정보만 전달할 것인지 모두 전달할 것인지
-		if (node != null) {
-			response.write(node.toString());
+		if (request.has("id")) {
+			JSONObject node = Agent.node().get(request.getString("id"));
+			
+			if (node != null) {
+				JSONObject body = new JSONObject();
+				
+				body.put("base", node.getJSONObject("base"));
+				
+				if (node.has("monitor")) {
+					body.put("monitor", node.getJSONObject("monitor"));
+				}
+				
+				if (request.has("snmp") && request.getBoolean("snmp")) {
+					body.put("snmp", node.getJSONObject("snmp"));
+				}
+				
+				response.write(body.toString());
+			}
+			else {
+				throw new JSONException("Node not found.");
+			}
 		}
 		else {
-			throw new JSONException("Node not found.");
+			response.write(Agent.node().get().toString());
 		}
 	}
 	

@@ -14,12 +14,10 @@ import java.nio.channels.SocketChannel;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Set;
-import java.util.Timer;
 
-public abstract class HTTPServer extends Timer implements Runnable, Closeable {
+public abstract class HTTPServer implements Runnable, Closeable {
 	
 	private final static int BUF_SIZE = 2048;
-	
 	private final ServerSocketChannel channel;
 	private final ServerSocket listener;
 	private final Selector selector;
@@ -126,8 +124,6 @@ public abstract class HTTPServer extends Timer implements Runnable, Closeable {
 		}
 			
 		connections.clear();
-		
-		super.cancel();
 		
 		this.selector.wakeup();
 	}

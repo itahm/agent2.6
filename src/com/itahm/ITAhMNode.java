@@ -59,7 +59,7 @@ abstract public class ITAhMNode extends SNMPNode {
 	 * 임시 보관소. 인덱스가 변경되는 경우 기존 인덱스 무시하도록 설계
 	 */
 	private final NodeManager nodeManager = Agent.node();
-	private final Map<String, Integer> hrProcessorEntry = new HashMap<>();
+	private final Map<String, JSONObject> hrProcessorEntry = new HashMap<>();
 	private final Map<String, JSONObject> hrStorageEntry = new HashMap<>();
 	private final Map<String, JSONObject> ifEntry = new HashMap<>();
 	private final Map<String, String> hrSWRunName = new HashMap<>();
@@ -79,6 +79,12 @@ abstract public class ITAhMNode extends SNMPNode {
 		
 		target.setRetries(Agent.Setting.retry());
 		target.setTimeout(Agent.Setting.timeout());
+		
+		for (Rolling resource : Rolling.values()) {
+			rolling.put(resource, new HashMap<String, RollingFile>());
+			
+			new File(this.nodeRoot, resource.toString()).mkdir();
+		}
 	}
 	
 	public void setSpeed(JSONObject speed) {
@@ -89,11 +95,11 @@ abstract public class ITAhMNode extends SNMPNode {
 		for (Object key : speed.keySet()) {
 			index = (String)key;
 			
-			this.speed.put(index, speed.getJSONObject(index).getLong("speed"));
+			this.speed.put(index, speed.getLong(index));
 		}
 	}
 	
-	public void setUpDown(JSONObject updown) {
+	public void setUpDown(JSONObject updown) throws IOException {
 		this.updown.clear();
 		
 		String index;
@@ -101,8 +107,10 @@ abstract public class ITAhMNode extends SNMPNode {
 		for (Object key : updown.keySet()) {
 			index = (String)key;
 			
-			this.updown.put(index, updown.getJSONObject(index).getBoolean("updown"));
+			this.updown.put(index, updown.getBoolean(index));
 		}
+		
+		save();
 	}
 	
 	public void setCritical(JSONObject critical) {
@@ -133,7 +141,7 @@ abstract public class ITAhMNode extends SNMPNode {
 		}
 	}
 	
-	public Map<String, Integer> getProcessorEntry() {
+	public Map<String, JSONObject> getProcessorEntry() {
 		return this.hrProcessorEntry;
 	}
 	
@@ -186,6 +194,19 @@ abstract public class ITAhMNode extends SNMPNode {
 		}
 	}
 	
+	public JSONObject
+	getData(String resource, long start, long end, boolean summary)
+	throws IOException {
+		HashMap<String, RollingFile> map = this.rolling.get(Rolling.valueOf(resource.toUpperCase()));
+		JSONObject data = new JSONObject();
+		
+		for (String index: map.keySet()) {
+			data.put(index, map.get(index).getData(start, end, summary));
+		}
+
+		return data;
+	}
+	
 	private void putData(Rolling resource, String index, long value) throws IOException {
 		Map<String, RollingFile> rolling = this.rolling.get(resource);
 		RollingFile rollingFile = rolling.get(index);
@@ -205,6 +226,11 @@ abstract public class ITAhMNode extends SNMPNode {
 	public void onSuccess(long rtt) {
 		try {
 			putData(Rolling.RESPONSETIME, "0", rtt);
+			
+			this.data.put("responseTime",
+				new JSONObject().put("0",
+					new JSONObject().put("rtt",rtt)));
+			
 		} catch (IOException ioe) {
 			System.err.print(ioe);
 		}
@@ -215,10 +241,10 @@ abstract public class ITAhMNode extends SNMPNode {
 		if (this.data.has("sysObjectID") && !this.data.getString("sysObjectID").equals(this.enterprise)) {
 			// 최초일수도 있지만 변경된 경우 기존 정보를 삭제해 주기 위해 초기화
 			this.pdu = createDefaultPDU();
-				
-			Enterprise.setEnterprisePDU(this.pdu, this.enterprise);
 			
 			this.enterprise = this.data.getString("sysObjectID");
+			
+			Enterprise.setEnterprisePDU(this.pdu, this.enterprise);
 		}
 		
 		this.pdu.setRequestID(new Integer32(0));		
@@ -233,6 +259,8 @@ abstract public class ITAhMNode extends SNMPNode {
 		
 		// 성공
 		if (status == SnmpConstants.SNMP_ERROR_SUCCESS) {
+			this.data.put("lastResponse", Calendar.getInstance().getTimeInMillis());
+			
 			try {
 				parseProcessor();
 				parseStorage();
@@ -263,12 +291,15 @@ abstract public class ITAhMNode extends SNMPNode {
 		if (this.status != status) {
 			this.status = status;
 			
+			String name = this.nodeManager.getNodeName(super.id);
+			
 			Agent.event().put(new JSONObject()
 				.put("origin", "snmp")
 				.put("id", super.id)
+				.put("name", name)
 				.put("status", status)
 				.put("message", String.format("%s SNMP %s",
-					this.nodeManager.getNodeName(super.id),
+					name,
 					status == SnmpConstants.SNMP_ERROR_SUCCESS? "응답 정상": status == SnmpConstants.SNMP_ERROR_TIMEOUT? "응답 없음.": ("오류 코드 "+ status))), true);
 		}
 		// 할 일 다 마치고 호출해야 한다.
@@ -346,7 +377,7 @@ abstract public class ITAhMNode extends SNMPNode {
 			}
 		}
 		
-		this.nodeManager.save(id, this.data);
+		this.nodeManager.save(id, "snmp", this.data);
 	}
 	
 	public void analyze(String resource, String index, long max, long value) {
@@ -355,6 +386,7 @@ abstract public class ITAhMNode extends SNMPNode {
 		}
 		
 		Map<String, Critical> entry = this.critical.get(resource);
+		long rate;
 		
 		if (resource.equals("hrProcessorEntry")) {
 			Critical critical = entry.get(index);
@@ -369,7 +401,7 @@ abstract public class ITAhMNode extends SNMPNode {
 				entry.put(index, critical);
 			}
 					
-			long rate = value *100 / max;
+			rate = value *100 / max;
 					
 			if (critical.diff(rate)) {
 				for (String key : entry.keySet()) {
@@ -393,7 +425,7 @@ abstract public class ITAhMNode extends SNMPNode {
 				return;
 			}
 			
-			long rate = value *100 / max;
+			rate = value *100 / max;
 				
 			if (critical.diff(rate)) {
 				onCritical(resource, index, critical.status, rate);
@@ -401,19 +433,40 @@ abstract public class ITAhMNode extends SNMPNode {
 		}
 	}
 	
-	private void onCritical(String resource, String index, boolean critical, long rate) {				
+	private void onCritical(String resource, String index, boolean status, long rate) {
+		boolean critical = true;
+		Map<String, Critical> map;
+		
+		main: for (String key1 : this.critical.keySet()) {
+			map = this.critical.get(key1);
+			
+			for (String key2 : map.keySet()) {
+				if (!map.get(key2).status) {
+					critical = false;
+				
+					break main;
+				}
+			}
+		}
+		
+		nodeManager.onCritical(this, critical);
+		
+		String name = this.nodeManager.getNodeName(super.id);
+		
 		Agent.event().put(new JSONObject()
 			.put("origin", "critical")
 			.put("id", super.id)
+			.put("name", name)
 			.put("resource", resource)
 			.put("index", index)
+			.put("status", status)
 			.put("critical", critical)
 			.put("rate", rate)
 			.put("message", String.format("%s [%s] %d%% 임계 %s",
-					this.nodeManager.getNodeName(super.id),
+					name,
 					resource,
 					rate,
-					critical? "정상": "초과")), true);	
+					status? "정상": "초과")), true);	
 	}
 	
 	@Override
@@ -556,7 +609,13 @@ abstract public class ITAhMNode extends SNMPNode {
 		String index = Integer.toString(response.last());
 		
 		if (request.startsWith(OID_hrProcessorLoad) && response.startsWith(OID_hrProcessorLoad)) {
-			this.hrProcessorEntry.put(index, ((Integer32)variable).getValue());
+			JSONObject processorData = this.hrProcessorEntry.get(index);
+			
+			if (processorData == null) {
+				this.hrProcessorEntry.put(index, processorData = new JSONObject());
+			}
+			
+			processorData.put("hrProcessorLoad", ((Integer32)variable).getValue());
 		}
 		else if (request.startsWith(OID_hrSWRunName) && response.startsWith(OID_hrSWRunName)) {
 			this.hrSWRunName.put(index, new String(((OctetString)variable).getValue()));
@@ -595,11 +654,14 @@ abstract public class ITAhMNode extends SNMPNode {
 	}
 	
 	private void parseProcessor() throws IOException {
+		JSONObject processorData;
 		TopTable.Value max = null;
 		long value;
 		
 		for(String index: this.hrProcessorEntry.keySet()) {
-			value = this.hrProcessorEntry.get(index);
+			processorData = this.hrProcessorEntry.get(index);
+			
+			value = processorData.getInt("hrProcessorLoad");
 			
 			this.putData(Rolling.HRPROCESSORLOAD, index, value);
 			
@@ -695,10 +757,13 @@ abstract public class ITAhMNode extends SNMPNode {
 		}
 		
 		if (modified || (entry != null && entry.size() > 0)) {
+			String name = this.nodeManager.getNodeName(super.id);
+			
 			Agent.event().put(new JSONObject()
 				.put("origin", "warning")
 				.put("id", super.id)
-				.put("message", String.format("%s 저장소 상태 변화 감지", this.nodeManager.getNodeName(super.id)))
+				.put("name", name)
+				.put("message", String.format("%s 저장소 상태 변화 감지", name))
 				, false);
 		}
 		
@@ -758,13 +823,16 @@ abstract public class ITAhMNode extends SNMPNode {
 				if (lastData.getInt("ifOperStatus") != status
 					&& this.updown.containsKey(index)
 					&& this.updown.get(index)) {
+					String name = this.nodeManager.getNodeName(super.id);
+					
 					Agent.event().put(new JSONObject()
-						.put("origin", "monitor")
-						.put("ip", super.id)
-						.put("monitor", status == 1? true: false)
+						.put("origin", "updown")
+						.put("id", super.id)
+						.put("name", name)
+						.put("status", status == 1? true: false)
 						.put("message"
 							, String.format("%s interface %s %s",
-								this.nodeManager.getNodeName(super.id),
+								name,
 								indexData.has("ifName")? indexData.getString("ifName"): index,
 								status==1? "up": "down"
 							)
@@ -978,9 +1046,9 @@ abstract public class ITAhMNode extends SNMPNode {
 		}
 		
 		private boolean diff(long value) {
-			boolean status = this.critical <= value;
+			boolean status = this.critical > value;
 			
-			if (this.status == status) { // 상태가 같으면 none
+			if (this.status == status) { // 상태가 같으면
 				return false;
 			}
 			

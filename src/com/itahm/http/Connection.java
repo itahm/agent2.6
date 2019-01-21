@@ -10,6 +10,7 @@ import java.nio.channels.SocketChannel;
 import java.util.Calendar;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Timer;
 import java.util.TimerTask;
 
 public class Connection implements Closeable {
@@ -28,6 +29,8 @@ public class Connection implements Closeable {
 	public final static String TRACE = "TRACE";
 	public final static String CONNECT = "CONNECT";
 
+	private final static Timer timer = new Timer("ITAhM Connection timer", true);
+	
 	private Map<String, String> header = new HashMap<>();
 	
 	private final SocketChannel channel;
@@ -96,7 +99,8 @@ public class Connection implements Closeable {
 		Calendar c = Calendar.getInstance();
 		
 		c.add(Calendar.HOUR, 1);
-		this.listener.schedule(this.task, c.getTime());
+		
+		timer.schedule(this.task, c.getTime());
 	}
 	
 	private void parseBody(ByteBuffer src) throws IOException {

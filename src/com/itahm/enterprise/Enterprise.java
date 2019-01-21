@@ -58,18 +58,18 @@ public class Enterprise {
 	}
 	
 	private static boolean parseCisco(ITAhMNode node, OID response, Variable variable, OID request) {
-		Map<String, Integer> hrProcessorEntry = node.getProcessorEntry();
+		Map<String, JSONObject> hrProcessorEntry = node.getProcessorEntry();
 		String index = Integer.toString(response.last());
 		
 		if (request.startsWith(OID_busyPer) && response.startsWith(OID_busyPer)) {
-			hrProcessorEntry.put(index, (int)((Gauge32)variable).getValue());
+			hrProcessorEntry.put(index, new JSONObject().put("hrProcessorLoad", (int)((Gauge32)variable).getValue()));
 		}
 		else if (request.startsWith(OID_cpmCPUTotal5sec) && response.startsWith(OID_cpmCPUTotal5sec)) {
-			hrProcessorEntry.put(index, (int)((Gauge32)variable).getValue());
+			hrProcessorEntry.put(index, new JSONObject().put("hrProcessorLoad", (int)((Gauge32)variable).getValue()));
 			
 		}
 		else if (request.startsWith(OID_cpmCPUTotal5secRev) && response.startsWith(OID_cpmCPUTotal5secRev)) {
-			hrProcessorEntry.put(index, (int)((Gauge32)variable).getValue());
+			hrProcessorEntry.put(index, new JSONObject().put("hrProcessorLoad", (int)((Gauge32)variable).getValue()));
 		}
 		else {
 			return false;
@@ -79,7 +79,7 @@ public class Enterprise {
 	}
 	
 	private static boolean parseDasan(ITAhMNode node, OID response, Variable variable, OID request) {
-		Map<String, Integer> hrProcessorEntry = node.getProcessorEntry();
+		Map<String, JSONObject> hrProcessorEntry = node.getProcessorEntry();
 		Map<String, JSONObject> hrStorageEntry = node.getStorageEntry();
 		String index = Integer.toString(response.last());
 		JSONObject storageData = hrStorageEntry.get(index);
@@ -94,7 +94,7 @@ public class Enterprise {
 		}
 		
 		if (request.startsWith(OID_dsCpuLoad5s) && response.startsWith(OID_dsCpuLoad5s)) {
-			hrProcessorEntry.put(index, (int)((Integer32)variable).getValue());
+			hrProcessorEntry.put(index, new JSONObject().put("hrProcessorLoad", (int)((Integer32)variable).getValue()));
 		}
 		else if (request.startsWith(OID_dsTotalMem) && response.startsWith(OID_dsTotalMem)) {
 			storageData.put("hrStorageSize", (int)((Integer32)variable).getValue());
@@ -110,11 +110,11 @@ public class Enterprise {
 	}
 	
 	private static boolean parseAgate(ITAhMNode node, OID response, Variable variable, OID request) {
-		Map<String, Integer> hrProcessorEntry = node.getProcessorEntry();
+		Map<String, JSONObject> hrProcessorEntry = node.getProcessorEntry();
 		String index = Integer.toString(response.last());
 		
 		if (request.startsWith(OID_axgateCPU) && response.startsWith(OID_axgateCPU)) {
-			hrProcessorEntry.put(index,  (int)((Integer32)variable).getValue());
+			hrProcessorEntry.put(index,  new JSONObject().put("hrProcessorLoad", (int)((Integer32)variable).getValue()));
 		}
 		else {
 			return false;

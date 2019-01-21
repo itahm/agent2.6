@@ -11,14 +11,20 @@ public class TCPNode extends Node {
 	private final NodeListener listener;
 	private final InetSocketAddress target;
 	
-	public TCPNode(NodeListener listener, String id, String ip, int tcp) throws UnknownHostException {
+	public TCPNode(NodeListener listener, String id, String ip) throws UnknownHostException {
 		super(id);
 		
 		this.listener = listener;
 		
 		super.thread.setName(String.format("ITAhM TCPNode %s", ip));
 		
-		target = new InetSocketAddress(InetAddress.getByName(ip), tcp);
+		String [] address = ip.split(":");
+		
+		if (address.length != 2) {
+			throw new UnknownHostException(ip);
+		}
+		
+		target = new InetSocketAddress(InetAddress.getByName(address[0]), Integer.parseInt(address[1]));
 	}
 
 	

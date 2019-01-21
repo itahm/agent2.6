@@ -136,4 +136,15 @@ public class Util {
 		return size;
 	}
 	
+	public final static void deleteDirectory(File directory) {
+		File[] files = directory.listFiles();
+		
+		if (files != null) {
+			for (File file : files) {
+				deleteDirectory(file);
+			}
+		}
+		
+		directory.delete();
+	}
 }

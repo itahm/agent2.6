@@ -35,21 +35,13 @@ public class Network {
 		
 	}
 	
-	public static void main(String[] args) throws IOException {
-		Network n = new Network("192.168.0.0", 24);
-		Iterator<String> it = n.iterator();
-		
-		while(it.hasNext()) {
-		}
-	}
-	
 	private String toIPString(long ip) {
 		return (0xff&(ip >>> 24))+"."+(0xff&(ip >>> 16))+"."+(0xff&(ip >>> 8))+"."+(0xff&ip);
 	}
 	
 	public Iterator<String> iterator() {
-		this.start = this.network +1;
-		this.remains = ~this.mask -1;
+		this.start = this.network;
+		this.remains = ~this.mask +1;
 		
 		return new Iterator<String> () {
 			

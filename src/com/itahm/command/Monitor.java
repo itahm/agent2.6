@@ -11,7 +11,12 @@ public class Monitor extends Command {
 
 	@Override
 	public void execute(JSONObject request, Response response) throws IOException, JSONException {
-		Agent.node().setMonitor(request.getString("id"), request.getJSONObject("monitor"));
+		if (!Agent.node().setMonitor(request.getString("id"),
+				request.isNull("protocol")? null: request.getString("protocol"))) {
+			
+			response.setStatus(Response.Status.CONFLICT);
+			response.write(new JSONObject().put("error", "존재하지 않는 ID, 또는 IP").toString());
+		}
 	}
 
 }

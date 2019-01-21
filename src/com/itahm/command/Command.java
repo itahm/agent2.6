@@ -40,6 +40,8 @@ abstract public class Command {
 		
 		case "SEARCH": return new Search();
 		
+		case "SPEED": return new Speed();
+		
 		case "TOP": return new Top();
 		
 		case "UPDOWN": return new UpDown();

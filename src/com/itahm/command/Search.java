@@ -26,25 +26,37 @@ import org.snmp4j.transport.DefaultUdpTransportMapping;
 
 import com.itahm.Agent;
 import com.itahm.http.Response;
-import com.itahm.json.JSONException;
 import com.itahm.json.JSONObject;
 import com.itahm.util.Network;
 
 public class Search extends Command implements Runnable {
 
-	private final Thread thread = new Thread(this);
+	private Thread thread;
 	private Network network;
-	private Snmp snmp; 
+	private Snmp snmp;
+	private String id;
 	
-	@Override
-	public void execute(JSONObject request, Response response) throws IOException, JSONException {
+	public void execute(Network network) throws IOException {
+		execute(network, null);
+	}
+	
+	public void execute(Network network, String id) throws IOException {
 		this.snmp = new Snmp(new DefaultUdpTransportMapping());
+		this.network = network;
+		this.id = id;
+		this.thread = new Thread(this);
 		
-		this.network = new Network(InetAddress.getByName(request.getString("network")).getAddress(), request.getInt("mask"));
+		this.snmp.listen();
 		
 		this.thread.setName("ITAhM Search");
 		this.thread.setDaemon(true);
 		this.thread.start();
+	}
+	
+	@Override
+	public void execute(JSONObject request, Response response) throws IOException {
+		execute(new Network(InetAddress.getByName(request.getString("network")).getAddress(),
+				request.getInt("mask")));
 	}
 
 	@Override
@@ -57,19 +69,20 @@ public class Search extends Command implements Runnable {
 			request,
 			response;
 		String
-			id,
+			ip,
 			name;
 		UdpAddress udp;
 		ResponseEvent event;
 		int version;
 		
-		for (Object key : table.keySet()) {
-			name = (String)key;
+		for (@SuppressWarnings("unchecked")
+		Iterator<Object> profiles = table.keys(); profiles.hasNext();) {
+			name = (String)profiles.next();
 			
 			profile = table.getJSONObject(name);
 			
-			switch(version = profile.getInt("version")) {
-			case SnmpConstants.version3:
+			switch(profile.getString("version").toLowerCase()) {
+			case "v3": //SnmpConstants.version3
 				OctetString user = new OctetString(profile.getString("user"));
 				USM usm = this.snmp.getUSM();
 				
@@ -88,13 +101,28 @@ public class Search extends Command implements Runnable {
 				
 				request = new ScopedPDU();
 				
+				version = SnmpConstants.version3;
+				
 				break;
-			default:
+			case "v2c":
 				target = new CommunityTarget();
 					
 				((CommunityTarget)target).setCommunity(new OctetString(profile.getString("community")));
 				
 				request = new PDU();
+				
+				version = SnmpConstants.version2c;
+				
+				break;
+				
+			default:
+				target = new CommunityTarget();
+				
+				((CommunityTarget)target).setCommunity(new OctetString(profile.getString("community")));
+				
+				request = new PDU();
+				
+				version = SnmpConstants.version1;	
 			}
 			
 			target.setVersion(version);
@@ -105,40 +133,67 @@ public class Search extends Command implements Runnable {
 			request.add(new VariableBinding(new OID(new int [] {1,3,6,1,2,1})));
 			
 			udp = new UdpAddress(profile.getInt("udp"));
-		
+			
 			for (Iterator<String> it = network.iterator(); it.hasNext(); ) {
+				ip = it.next();
+
 				try {
-					udp.setInetAddress(InetAddress.getByName(it.next()));
+					udp.setInetAddress(InetAddress.getByName(ip));
+					
+					target.setAddress(udp);
 					
 					request.setRequestID(new Integer32(0));
 					
 					event = this.snmp.send(request, target);
 					
-					if (event != null) {
+					// 발생하면 안되는 상황
+					if (event == null) {
+						if (this.id != null) {
+							Agent.event().put(new JSONObject()
+								.put("origin", "system")
+								.put(name, "System")
+								.put("status", false)
+								.put("message", String.format("SNMP 서비스에 오류가 있습니다.")), false);
+						}
+					}
+					else {
 						response = event.getResponse();
 						
+						// Search 성공
 						if (response != null && response.getErrorStatus() == SnmpConstants.SNMP_ERROR_SUCCESS) {
-							id = Agent.node().create(new JSONObject()
-								.put("base", new JSONObject()
-									.put("ip", ""))
-								.put("monitor", new JSONObject()
-									.put("profile", name)
-									.put("protocol", "snmp")));
+							//Net Search의 결과 이더라도 base가 존재할 수 있고 심지어 Node가 존재 할 수도 있다. 
+							
+							this.id = Agent.node().detect(ip, name);
+							
+							name = Agent.node().getNodeName(this.id);
+							
+							// Net Search, Set Monitor 여부와 무관하게 통보
+							Agent.event().put(new JSONObject()
+								.put("origin", "test")
+								.put("id", this.id)
+								.put("name", name)
+								.put("status", true)
+								.put("protocol", "snmp")
+								.put("message", String.format("%s SNMP 등록 성공", name)), false);
+						}
+						// Search 실패, Set Monitor의 결과이고 더이상 profile이 존재하지 않으면 통보
+						else if (this.id != null && !profiles.hasNext()) {
+							name = Agent.node().getNodeName(this.id);
 							
 							Agent.event().put(new JSONObject()
 								.put("origin", "test")
-								.put("id", id)
-								.put("test", true)
+								.put("id", this.id)
+								.put("name", name)
+								.put("status", false)
 								.put("protocol", "snmp")
-								.put("message", String.format("%s SNMP 등록 성공", id)), false);
+								.put("message", String.format("%s SNMP 등록 실패", name)), false);
 						}
 						
 					}
-				} catch (IOException e) {}
-				
-				target.setAddress(udp);
+				} catch (IOException e) {
+					System.err.print(e);
+				}
 			}
-			
 		}
 	}
 	

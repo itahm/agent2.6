@@ -6,29 +6,52 @@ import com.itahm.json.JSONException;
 import com.itahm.json.JSONObject;
 
 import com.itahm.Agent;
+import com.itahm.NodeManager;
 import com.itahm.database.Data;
 import com.itahm.http.Response;
 
 public class Put extends Command {
+	private static final String NULL = "";
 	
 	@Override
 	public void execute(JSONObject request, Response response) throws IOException {
-		Data db = Agent.db().get(request.getString("database"));
+		String
+			database = request.getString("database"),
+			key = request.getString("key");
+		JSONObject value = request.isNull("value")? null: request.getJSONObject("value");
 		
-		if (db == null) {
-			throw new JSONException("Database not found.");
-		}
-		
-		String key = request.getString("key");
-		
-		if (request.isNull("value")) {
-			db.json.remove(key);
+		if (database.equals("node")) {
+			NodeManager node = Agent.node();
+			
+			if (value == null) {
+				node.remove(key);
+			}
+			else {
+				if (!NULL.equals(key)) {
+					node.save(key, "base", value);
+				}
+				else if (node.create(value) == null) {
+					response.setStatus(Response.Status.CONFLICT);
+					response.write(new JSONObject().put("error", "사용중인 IP.").toString());
+				}
+			}
 		}
 		else {
-			db.json.put(key, request.getJSONObject("value"));
+			Data db = Agent.db().get(database);
+			
+			if (db == null) {
+				throw new JSONException("존재하지 않는 Database.");
+			}
+			
+			if (value == null) {
+				db.json.remove(key);
+			}
+			else {
+				db.json.put(key, value);
+			}
+			
+			db.save();
 		}
-		
-		db.save();
 	}
 	
 }

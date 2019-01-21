@@ -6,14 +6,13 @@ import java.nio.file.Paths;
 
 import com.itahm.Agent;
 import com.itahm.http.Response;
-import com.itahm.json.JSONException;
 import com.itahm.json.JSONObject;
 import com.itahm.util.Util;
 
 public class Restore extends Command {
 
 	@Override
-	public void execute(JSONObject request, Response response) throws IOException, JSONException {
+	public void execute(JSONObject request, Response response) throws IOException {
 		Agent.node().stop();
 		
 		Agent.db().restore(request.getJSONObject("database"));
@@ -28,7 +27,7 @@ public class Restore extends Command {
 			Util.putJSONtoFile(nodeRoot.resolve(id), backup.getJSONObject(id));
 		}
 		
-		Agent.node().load();
+		Agent.node().start();
 	}
 
 }

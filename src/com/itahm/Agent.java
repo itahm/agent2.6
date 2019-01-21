@@ -38,6 +38,8 @@ public class Agent {
 		db = new Database();
 		
 		event = new EventManager(new File(dataRoot, "event"));
+
+		node = new NodeManager();
 		
 		cleaner = new DataCleaner(new File(dataRoot, "node"), 3) {
 
@@ -47,15 +49,16 @@ public class Agent {
 
 			@Override
 			public void onComplete(long count, long elapse) {
-				event()
-					.put(new JSONObject()
-					.put("origin", "system")
-					.put("message", count < 0?
-						String.format("파일 정리 취소."):
-						String.format("파일 정리 %d 건, 소요시간 %d ms", count, elapse)), false);
+				if (count != 0) {
+					event().put(new JSONObject()
+						.put("origin", "system")
+						.put("name", "System")
+						.put("status", true)
+						.put("message", count < 0?
+							String.format("파일 정리 취소."):
+							String.format("파일 정리 %d 건, 소요시간 %d ms", count, elapse)), false);
+				}
 			}};		
-		
-		node = new NodeManager();
 		
 		Calendar c = Calendar.getInstance();
 		
@@ -65,7 +68,7 @@ public class Agent {
 		c.set(Calendar.SECOND, 0);
 		c.set(Calendar.MILLISECOND, 0);
 		
-		new Timer().schedule(new TimerTask() {
+		new Timer("ITAhM Cleaner").schedule(new TimerTask() {
 
 			@Override
 			public void run() {
@@ -77,6 +80,14 @@ public class Agent {
 			}}, c.getTimeInMillis(), 1000*60*60*24);
 		
 		System.out.format("ITAhM Agent version %s ready.\n", Setting.version);
+	}
+	
+	public static void start() throws IOException {
+		node.start();
+	}
+	
+	public static void stop() throws IOException {
+		node.stop();
 	}
 	
 	public static JSONObject signIn(JSONObject data) {
@@ -186,7 +197,7 @@ public class Agent {
 	
 	public static class Setting {
 		private static int rollingInterval = 1; //minutes
-		private static long requestInterval = 100000; // milliseconds
+		private static long requestInterval = 10000; // milliseconds
 		private static JSONObject smtp = null;
 		private static HTTPListener listener = null;
 		private static long limit = 0;

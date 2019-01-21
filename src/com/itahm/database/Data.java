@@ -3,7 +3,6 @@ package com.itahm.database;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 
 import com.itahm.json.JSONObject;
@@ -12,14 +11,14 @@ import com.itahm.util.Util;
 public class Data {
 
 	public final JSONObject json;
-	private Path
+	protected Path
 		path, backup;
 	
 	public Data(Path path) throws IOException {
 		String id = path.getFileName().toString();
 		
 		this.path = path;
-		this.backup = Paths.get(path.getParent().toString(), id +".backup");
+		this.backup = path.getParent().resolve(id +".backup");
 		
 		if(Files.isRegularFile(path)) {
 			JSONObject json = Util.getJSONFromFile(path);
