@@ -4,13 +4,14 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 import com.itahm.json.JSONObject;
 
-public class TopTable implements Comparator<String> {
+public class TopTable {
 	
 	public enum Resource {
 		RESPONSETIME("responseTime"),
@@ -24,15 +25,15 @@ public class TopTable implements Comparator<String> {
 		THROUGHPUTERR("throughputErr");
 		
 		private final String resource;
-		private final boolean isRate;
+		private final boolean byRate;
 		
 		private Resource(String resource) {
 			this(resource, false);
 		}
 		
-		private Resource(String resource, boolean rate) {
+		private Resource(String resource, boolean byRate) {
 			this.resource = resource;
-			this.isRate = rate;
+			this.byRate = byRate;
 		}
 		
 		public String toString() {
@@ -41,8 +42,6 @@ public class TopTable implements Comparator<String> {
 	};
 	
 	private final Map<Resource, HashMap<String, Value>> map = new ConcurrentHashMap<> ();
-	private Map<String, Value> top;
-	private boolean sortByRate;
 	
 	public TopTable() {
 		for (Resource key : Resource.values()) {
@@ -54,10 +53,51 @@ public class TopTable implements Comparator<String> {
 		this.map.get(resource).put(ip, value);
 	}
 	
-	public JSONObject getTop(int count) {
+	public Iterator<String> iterator(Resource resource) {
+		List<String> list = new ArrayList<String>();
+		Map<String, Value> map = this.map.get(resource);
+		
+		list.addAll(map.keySet());
+		
+		Collections.sort(list, resource.byRate? new Comparator<String>() {
+
+			@Override
+			public int compare(String ip1, String ip2) {
+				Value v1 = map.get(ip1),
+					v2 = map.get(ip2);
+				long l = v2.rate - v1.rate;
+					
+				if (l == 0) {
+					l = v2.value - v1.value;
+				}
+				
+		        return l > 0? 1: l < 0? -1: 0;
+			}
+			
+		}: new Comparator<String>() {
+
+			@Override
+			public int compare(String ip1, String ip2) {
+				Value v1 = map.get(ip1),
+					v2 = map.get(ip2);
+				long l = v2.value - v1.value;
+					
+				if (l == 0) {
+					l = v2.rate - v1.rate;
+				}
+				
+				return l > 0? 1: l < 0? -1: 0;
+			}
+		});
+		
+		return list.iterator();
+	}
+	
+	public JSONObject getTop(int limit) {
 		JSONObject
 			top = new JSONObject(),
 			resourceTop;
+		Map<String, Value> map;
 		List<String> list;
 		String ip;
 		
@@ -65,16 +105,16 @@ public class TopTable implements Comparator<String> {
 			resourceTop = new JSONObject();
 			list = new ArrayList<String>();
 			
-			this.top = this.map.get(resource);
-			this.sortByRate = resource.isRate;
+			map = this.map.get(resource);
 			
-			list.addAll(this.top.keySet());
-			Collections.sort(list, this);
+			list.addAll(map.keySet());
+			
+			Collections.sort(list, resource.byRate? new SortByRate(map): new SortByValue(map));
 		
-			for (int i=0, _i= list.size(), n=0; i<_i && n<count; i++) {
+			for (int i=0, _i= list.size(), n=0; i<_i && n<limit; i++) {
 				ip = list.get(i);
 				
-				resourceTop.put(ip,  this.top.get(ip).toJSONObject());
+				resourceTop.put(ip,  map.get(ip).toJSONObject());
 				
 				n++;
 			}
@@ -89,30 +129,6 @@ public class TopTable implements Comparator<String> {
 		for (Resource resource: Resource.values()) {
 			this.map.get(resource).remove(ip);
 		}
-	}
-	
-	@Override
-	public int compare(String ip1, String ip2) {
-		Value v1 = this.top.get(ip1),
-			v2 = this.top.get(ip2);
-		long l;
-		
-		if (this.sortByRate) {
-			l = v2.rate - v1.rate;
-			
-			if (l == 0) {
-				l = v2.value - v1.value;
-			}
-		}
-		else {
-			l = v2.value - v1.value;
-			
-			if (l == 0) {
-				l = v2.rate - v1.rate;
-			}
-		}
-		
-        return l > 0? 1: l < 0? -1: 0;
 	}
 	
 	public final static class Value {
@@ -131,6 +147,48 @@ public class TopTable implements Comparator<String> {
 				.put("value", this.value)
 				.put("rate", this.rate)
 				.put("index", this.index);
+		}
+	}
+
+	class SortByValue implements Comparator<String> {
+		private final Map<String, Value> map;
+		
+		public SortByValue (Map<String, Value> map) {
+			this.map = map;
+		}
+		
+		@Override
+		public int compare(String ip1, String ip2) {
+			Value v1 = map.get(ip1),
+				v2 = map.get(ip2);
+			long l = v2.value - v1.value;
+				
+			if (l == 0) {
+				l = v2.rate - v1.rate;
+			}
+			
+			return l > 0? 1: l < 0? -1: 0;
+		}
+	}
+	
+	class SortByRate implements Comparator<String> {
+		private final Map<String, Value> map;
+		
+		public SortByRate (Map<String, Value> map) {
+			this.map = map;
+		}
+		
+		@Override
+		public int compare(String ip1, String ip2) {
+			Value v1 = map.get(ip1),
+				v2 = map.get(ip2);
+			long l = v2.value - v1.value;
+				
+			if (l == 0) {
+				l = v2.rate - v1.rate;
+			}
+			
+			return l > 0? 1: l < 0? -1: 0;
 		}
 	}
 }

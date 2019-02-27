@@ -9,39 +9,26 @@ import org.snmp4j.Snmp;
 import org.snmp4j.Target;
 import org.snmp4j.event.ResponseEvent;
 import org.snmp4j.mp.SnmpConstants;
-import org.snmp4j.security.USM;
-import org.snmp4j.security.UsmUser;
 import org.snmp4j.smi.Null;
 import org.snmp4j.smi.OID;
-import org.snmp4j.smi.OctetString;
 import org.snmp4j.smi.Variable;
 import org.snmp4j.smi.VariableBinding;
-import org.snmp4j.transport.DefaultUdpTransportMapping;
 
+import com.itahm.NodeManager;
 import com.itahm.json.JSONException;
 
 abstract public class SNMPNode extends ICMPNode implements Closeable {
 
 	private final Snmp snmp;
 	protected final Target target;
-	
-	public SNMPNode(NodeListener listener, String id, String ip, Target target) throws IOException {
-		super(listener, id, ip);
+	public int tmp = 0;
+	public SNMPNode(NodeManager manager, String id, String ip, Target target) throws IOException {
+		super(manager, id, ip);
 
-		this.snmp = new Snmp(new DefaultUdpTransportMapping());
+		this.snmp = manager;
 		this.target = target;
-		
-		this.snmp.listen();
 	}
 	
-	public void setUSM(OctetString user, OID authProtocol, OctetString authPassphrase, OID privProtocol, OctetString privPassphrase) {
-		USM usm = this.snmp.getUSM();
-	
-		if (usm.getUserTable().getUser(user) == null) {
-			usm.addUser(new UsmUser(user, authProtocol, authPassphrase, privProtocol, privPassphrase));
-		}
-	}
-		
 	public int sendRequest(PDU pdu) throws IOException {
 		return onEvent(this.snmp.send(pdu, this.target));
 	}
@@ -67,7 +54,7 @@ abstract public class SNMPNode extends ICMPNode implements Closeable {
 		
 		PDU nextPDU = getNextPDU(request, response);
 		
-		if (nextPDU == null) {
+		if (nextPDU == null) {this.tmp = 0;
 			return SnmpConstants.SNMP_ERROR_SUCCESS;
 		}
 		
@@ -107,16 +94,6 @@ abstract public class SNMPNode extends ICMPNode implements Closeable {
 		}
 		
 		return pdu;
-	}
-	
-	public void close() {
-		super.close();
-		
-		try {
-			this.snmp.close();
-		} catch (IOException ioe) {
-			System.err.print(ioe);
-		}
 	}
 	
 	abstract public PDU createPDU();

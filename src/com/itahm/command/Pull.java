@@ -7,19 +7,19 @@ import com.itahm.json.JSONException;
 import com.itahm.json.JSONObject;
 
 import com.itahm.Agent;
-import com.itahm.database.Data;
+import com.itahm.database.Table;
 import com.itahm.http.Response;
 
 public class Pull extends Command {
 	
 	private JSONObject pull(String database) {
-		Data db = Agent.db().get((String)database);
+		Table db = Agent.db().get((String)database);
 		
 		if (db == null) {
 			throw new JSONException("Database not found.");
 		}
 		
-		return db.json;
+		return db.json();
 	}
 	
 	private JSONObject pull(JSONArray databases) {

@@ -12,23 +12,15 @@ abstract public class Command {
 	
 	public static Command valueOf(String command) {
 		switch(command.toUpperCase()) {
-		case "BACKUP": return new Backup();
-		
-		case "CLEAN": return new Clean();
-		
 		case "CONFIG": return new Config();
-		
-		case "CRITICAL": return new Critical();
-		
-		case "HEALTH": return new Health();
 
 		case "INFORMATION": return new Information();
 		
 		case "LOG": return new Log();
 		
-		case "MONITOR": return new Monitor();
-		
 		case "NODE": return new Node();
+		
+		case "ORDER": return new Order();
 		
 		case "PULL": return new Pull();
 		
@@ -36,15 +28,7 @@ abstract public class Command {
 		
 		case "QUERY": return new Query();
 		
-		case "RESTORE": return new Restore();
-		
 		case "SEARCH": return new Search();
-		
-		case "SPEED": return new Speed();
-		
-		case "TOP": return new Top();
-		
-		case "UPDOWN": return new UpDown();
 		}
 		
 		return null;

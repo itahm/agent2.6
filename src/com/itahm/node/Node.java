@@ -7,8 +7,9 @@ import java.util.concurrent.LinkedBlockingQueue;
 
 abstract public class Node implements Runnable, Closeable {
 
+	protected boolean isClosed = false;
 	protected int
-		timeout = 10000,
+		timeout = 5000,
 		retry = 1;
 	protected final Thread thread;
 	private final BlockingQueue<Long> queue = new LinkedBlockingQueue<>();
@@ -26,7 +27,7 @@ abstract public class Node implements Runnable, Closeable {
 	public void run() {
 		long delay, sent;
 		
-		init: while (!this.thread.isInterrupted()) {
+		loop: while (!this.thread.isInterrupted()) {
 			try {
 				delay = this.queue.take();
 				
@@ -41,14 +42,14 @@ abstract public class Node implements Runnable, Closeable {
 				
 				for (int i=0; i<this.retry; i++) {
 					if (this.thread.isInterrupted()) {
-						throw new InterruptedException();
+						break loop;
 					}
 					
 					try {
 						if (isReachable()) {
 							onSuccess(System.currentTimeMillis() - sent);
 							
-							continue init;
+							continue loop;
 						}
 					} catch (IOException e) {
 						System.err.print(e);
@@ -58,6 +59,7 @@ abstract public class Node implements Runnable, Closeable {
 				onFailure();
 				
 			} catch (InterruptedException e) {
+				System.err.print(e);
 				break;
 			}
 		}
@@ -71,17 +73,20 @@ abstract public class Node implements Runnable, Closeable {
 	public void ping(long delay) {
 		try {
 			this.queue.put(delay);
-		} catch (InterruptedException e) {
+		} catch (InterruptedException ie) {
+			this.thread.interrupt();
 		}
 	}
 	
 	@Override
 	public void close() {
+		this.isClosed = true;
+		
 		this.thread.interrupt();
 		
 		try {
 			this.thread.join();
-		} catch (InterruptedException e) {
+		} catch (InterruptedException ie) {
 			this.thread.interrupt();
 		}
 	}

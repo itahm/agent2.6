@@ -51,7 +51,7 @@ public class EventManager extends DailyFile {
 			}
 		}
 		
-		setSMTP(Agent.Setting.smtp());
+		setSMTP(Agent.Config.smtp());
 	}
 
 	public void sendMail(String title, String body, Object... to) throws MessagingException {
@@ -156,13 +156,13 @@ public class EventManager extends DailyFile {
 			try {
 				sendMail("ITAhM Message",
 					event.has("message")? event.getString("message"): "",
-					Agent.db().get("email").json.keySet().toArray());
+					Agent.db().get("email").json().keySet().toArray());
 			} catch (MessagingException | JSONException e) {
 				System.err.print(e);
 			}
 		}
 		
-		HTTPListener listener = Agent.Setting.listener();
+		HTTPListener listener = Agent.Config.listener();
 		
 		if (listener != null) {
 			listener.sendEvent(event, broadcast);

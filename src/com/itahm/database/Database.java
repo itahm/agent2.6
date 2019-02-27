@@ -14,43 +14,96 @@ import com.itahm.util.Util;
 public class Database {
 	
 	private final Path dataRoot;
-	private final Map<String, Data> map = new ConcurrentHashMap<>();
+	private final Map<String, Table> map = new ConcurrentHashMap<>();
 	
 	public Database() throws IOException {
 		
 		File dataRoot;
 		
-		dataRoot = Agent.Setting.root();
+		dataRoot = Agent.Config.root();
 		
 		this.dataRoot = Paths.get(dataRoot.toURI());
 		
-		load();
+		Table table;
+		
+		for (String name : new String [] 
+			{"account", "user", "profile", "icon", "config", "position", "address", "setting", "node"}) {
+			table = new Table(this.dataRoot.resolve(name));
+			
+			this.map.put(name, table);
+			
+			switch (name) {
+			case "account":
+				if (table.json().length() == 0) {
+					table.json()
+						.put("root", new JSONObject()
+						.put("username", "root")
+						.put("password", "63a9f0ea7bb98050796b649e85481845")
+						.put("level", 0));
+					
+					table.save();
+				}
+				
+				break;
+			case "profile":
+				if (table.json().length() == 0) {
+					table.json()
+						.put("default", new JSONObject()
+						.put("udp", 161)
+						.put("community", "nesp-pub")
+						.put("version", "v2c"));
+					
+					table.save();
+				}
+				
+				break;
+			case "position":
+				if (table.json().length() == 0){
+					table.json().put("position", new JSONObject());
+					
+					table.save();
+				}
+				
+				break;
+				
+			case "config":
+				if (table.json().length() == 0){
+					table.json()
+						.put("health", 5) // 5초, 재시도 0회
+						.put("snmpInterval", 10000) // 초
+						.put("saveInterval", 1) // 분
+						.put("top", 5); // 개
+					
+					table.save();
+				}
+				
+				break;
+			}
+		}
 	}
 
-	public Data get(String table) {
+	public Table get(String table) {
 		return this.map.get(table);
 	}
 	
-	public void put(String table, String key, JSONObject value) throws IOException {
-		Data data = this.map.get(table);
-		
-		data.json.put(key, value);
-		
-		data.save();
-	}
-	
-	public JSONObject backup() {
-		JSONObject backup = new JSONObject();
+	public JSONObject get() {
+		JSONObject database = new JSONObject();
 		
 		for (String table : this.map.keySet()) {
-			backup.put(table, this.map.get(table).json);
+			database.put(table, this.map.get(table).json());
 		}
 		
-		return backup;
+		return database;
 	}
 	
+	public void put(String name, String key, JSONObject value) throws IOException {
+		Table table = this.map.get(name);
+		
+		table.json().put(key, value);
+		
+		table.save();
+	}
 	
-	// TODO 동기화 필요할것.
 	public void restore(JSONObject backup) throws IOException {
 		String table;
 		
@@ -60,51 +113,6 @@ public class Database {
 			table = (String)key;
 			
 			Util.putJSONtoFile(this.dataRoot.resolve(table), backup.getJSONObject(table));
-		}
-		
-		load();
-	}
-	
-	private void load() throws IOException {
-		Data data;
-		
-		for (String table : new String [] {"account", "profile", "icon", "config", "position", "email", "setting"}) {
-			data = new Data(this.dataRoot.resolve(table));
-			
-			this.map.put(table, data);
-			
-			switch (table) {
-			case "account":
-				if (data.json.length() == 0) {
-					data.json.put("root", new JSONObject()
-						.put("username", "root")
-						.put("password", "63a9f0ea7bb98050796b649e85481845")
-						.put("level", 0));
-					
-					data.save();
-				}
-				
-				break;
-			case "profile":
-				if (data.json.length() == 0) {
-					data.json.put("default", new JSONObject()
-						.put("udp", 161)
-						.put("community", "public")
-						.put("version", "v2c"));
-					
-					data.save();
-				}
-				
-				break;
-			case "position":
-				if (data.json.length() == 0){
-					data.json.put("position", new JSONObject());
-					
-					data.save();
-				}
-				
-				break;
-			}
 		}
 	}
 	

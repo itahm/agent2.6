@@ -2,6 +2,7 @@ package com.itahm;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Paths;
 import java.util.Calendar;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -21,12 +22,12 @@ import org.snmp4j.smi.TimeTicks;
 import org.snmp4j.smi.Variable;
 import org.snmp4j.smi.VariableBinding;
 
+import com.itahm.database.Table;
 import com.itahm.enterprise.Enterprise;
 import com.itahm.json.JSONException;
 import com.itahm.json.JSONObject;
 import com.itahm.json.RollingFile;
 import com.itahm.node.SNMPNode;
-import com.itahm.node.NodeListener;
 
 abstract public class ITAhMNode extends SNMPNode {
 
@@ -50,10 +51,12 @@ abstract public class ITAhMNode extends SNMPNode {
 		}
 	}
 	
+	private final static int TIMEOUT = 5000;
+	private final static int RETRY = 2;
 	/**
 	 * 데이터 보관소. 인덱스가 없는 정보는 바로 저장된다. node.snmp 와 동일한 장소
 	 */
-	protected JSONObject data = new JSONObject();
+	protected final JSONObject data = new JSONObject();
 	
 	/**
 	 * 임시 보관소. 인덱스가 변경되는 경우 기존 인덱스 무시하도록 설계
@@ -64,30 +67,94 @@ abstract public class ITAhMNode extends SNMPNode {
 	private final Map<String, JSONObject> ifEntry = new HashMap<>();
 	private final Map<String, String> hrSWRunName = new HashMap<>();
 	private final Map<Rolling, HashMap<String, RollingFile>> rolling = new HashMap<Rolling, HashMap<String, RollingFile>>();
+	private final Table db;
 	private PDU pdu = createDefaultPDU();
 	private String enterprise;
-	private final File nodeRoot;
+	private final File dir;
 	private Map<String, Long> speed = new HashMap<>();
 	private Map<String, Boolean> updown = new HashMap<>();
 	private Map<String, Map<String, Critical>> critical = new HashMap<>();
 	private int status = SnmpConstants.SNMP_ERROR_SUCCESS;
 	
-	public ITAhMNode(NodeListener nodeListener, String id, String ip, Target target) throws IOException {
-		super(nodeListener, id, ip, target);
+	public ITAhMNode(String id, String ip, Target target) throws IOException {
+		super(Agent.node(), id, ip, target);
 		
-		this.nodeRoot = new File(new File(Agent.Setting.root(), "node"), id);
+		this.dir = new File(new File(Agent.Config.root(), "snmp"), id);
 		
-		target.setRetries(Agent.Setting.retry());
-		target.setTimeout(Agent.Setting.timeout());
+		this.dir.mkdirs();
+		
+		this.db = new Table(Paths.get(this.dir.toURI()).resolve("snmp"));
+		
+		loadSNMP(this.db.json());
+		
+		target.setTimeout(TIMEOUT);
+		target.setRetries(RETRY);
 		
 		for (Rolling resource : Rolling.values()) {
 			rolling.put(resource, new HashMap<String, RollingFile>());
 			
-			new File(this.nodeRoot, resource.toString()).mkdir();
+			new File(this.dir, resource.toString()).mkdir();
 		}
 	}
 	
-	public void setSpeed(JSONObject speed) {
+	private void loadSNMP(JSONObject snmp) throws IOException {
+		JSONObject 
+			speed = new JSONObject(),
+			updown = new JSONObject(),
+			critical = new JSONObject(),
+			entry, indexData;
+		String
+			index, resource;
+		
+		for (Object key1 : snmp.keySet()) {
+			switch(resource = (String)key1) {
+			case "responseTime":
+			case "hrProcessorEntry":
+			case "hrStorageEntry":
+			case "ifEntry":
+				entry = snmp.getJSONObject(resource);
+				
+				for (Object key2 : entry.keySet()) {
+					index = (String)key2;
+					
+					indexData = entry.getJSONObject(index);
+					
+					if (indexData.has("updown")) {
+						updown.put(index, indexData.getBoolean("updown"));
+					}
+					
+					if (indexData.has("speed")) {
+						speed.put(index, indexData.getLong("speed"));
+					}
+					
+					if (indexData.has("critical")) {
+						if (!critical.has(resource)) {
+							critical.put(resource, new JSONObject());
+						}
+					
+						critical.getJSONObject(resource)
+							.put(index, new JSONObject()
+								.put("critical", indexData.getInt("critical"))
+								.put("status", indexData.has("status")? indexData.getBoolean("status"): true));
+					}
+				}
+			}
+		}
+		
+		if (updown.length() > 0) {
+			setUpDown(updown);
+		}
+		
+		if (speed.length() > 0) {
+			setSpeed(speed);
+		}
+		
+		if (critical.length() > 0) {
+			initCritical(critical);
+		}
+	}
+	
+	public void setSpeed(JSONObject speed) throws IOException {
 		this.speed.clear();
 		
 		String index;
@@ -97,6 +164,8 @@ abstract public class ITAhMNode extends SNMPNode {
 			
 			this.speed.put(index, speed.getLong(index));
 		}
+		
+		save();
 	}
 	
 	public void setUpDown(JSONObject updown) throws IOException {
@@ -113,9 +182,52 @@ abstract public class ITAhMNode extends SNMPNode {
 		save();
 	}
 	
-	public void setCritical(JSONObject critical) {
-		this.critical.clear();
+	public void setCritical(JSONObject critical) throws IOException {
+		synchronized (this.critical) {
+			Map<String, Map<String, Critical>> old = this.critical;
+			
+			this.critical = new HashMap<>();
+			
+			String
+				resource,
+				index;
+			Map<String, Critical> map;
+			JSONObject entry;
+			boolean 
+				status = true,
+				indexStatus;
+			
+			for (Object key1 : critical.keySet()) {
+				resource = (String)key1;
+				
+				map = new HashMap<> ();
+				
+				this.critical.put(resource, map);
+				
+				entry = critical.getJSONObject(resource);
+				
+				for (Object key2 : entry.keySet()) {
+					index = (String)key2;
+			
+					indexStatus = old.containsKey(resource) && old.get(resource).containsKey(index)?
+						old.get(resource).get(index).status: true;
+							
+					map.put(index,
+						new Critical(entry.getInt(index), indexStatus));
+					
+					if (!indexStatus) {
+						status = false;
+					}
+				}
+			}
+			
+			this.nodeManager.onCritical(this, status);
+		}
 		
+		save();
+	}
+	
+	public void initCritical(JSONObject critical) {
 		String
 			resource, index;
 		Map<String, Critical> map;
@@ -135,8 +247,8 @@ abstract public class ITAhMNode extends SNMPNode {
 				index = (String)key2;
 				
 				indexData = entry.getJSONObject(index);
-				
-				map.put(index, new Critical(indexData.getInt("critical"), indexData.has("status")? indexData.getBoolean("status"): false));
+		
+				map.put(index, new Critical(indexData.getInt("critical"), indexData.getBoolean("status")));
 			}
 		}
 	}
@@ -212,12 +324,17 @@ abstract public class ITAhMNode extends SNMPNode {
 		RollingFile rollingFile = rolling.get(index);
 		
 		if (rollingFile == null) {
-			rolling.put(index, rollingFile = new RollingFile(new File(this.nodeRoot, resource.toString()), index));
+			rolling.put(index, rollingFile = new RollingFile(new File(this.dir, resource.toString()), index));
 		}
 		
-		rollingFile.roll(value, Agent.Setting.rollingInterval());
+		rollingFile.roll(value, Agent.Config.saveInterval());
 	}
 	
+	public JSONObject snmp() {
+		synchronized (this.data) {
+			return this.data;
+		}
+	}
 	/**
 	 * ICMPNode.onSuccess override
 	 * 최종적으로 super.onSuccess를 호출해 주어야 한다.
@@ -228,26 +345,11 @@ abstract public class ITAhMNode extends SNMPNode {
 			putData(Rolling.RESPONSETIME, "0", rtt);
 			
 			this.data.put("responseTime",
-				new JSONObject().put("0",
-					new JSONObject().put("rtt",rtt)));
+				new JSONObject().put("0", new JSONObject().put("rtt",rtt)));
 			
 		} catch (IOException ioe) {
 			System.err.print(ioe);
 		}
-		
-		this.nodeManager.submitTop(super.id, TopTable.Resource.RESPONSETIME, new TopTable.Value(rtt, -1, "0"));
-		
-		// sysObjectID 가 변동되었으면
-		if (this.data.has("sysObjectID") && !this.data.getString("sysObjectID").equals(this.enterprise)) {
-			// 최초일수도 있지만 변경된 경우 기존 정보를 삭제해 주기 위해 초기화
-			this.pdu = createDefaultPDU();
-			
-			this.enterprise = this.data.getString("sysObjectID");
-			
-			Enterprise.setEnterprisePDU(this.pdu, this.enterprise);
-		}
-		
-		this.pdu.setRequestID(new Integer32(0));		
 		
 		// 기존 정보를 삭제해 주기 위해 초기화
 		this.hrProcessorEntry.clear();
@@ -255,13 +357,19 @@ abstract public class ITAhMNode extends SNMPNode {
 		this.ifEntry.clear();
 		this.hrSWRunName.clear();
 		
+		this.pdu.setRequestID(new Integer32(0));
+		
 		int status = tryRequest(this.pdu);
 		
 		// 성공
 		if (status == SnmpConstants.SNMP_ERROR_SUCCESS) {
+			this.nodeManager.submitTop(super.id, TopTable.Resource.RESPONSETIME, new TopTable.Value(rtt, -1, "0"));
+			
 			this.data.put("lastResponse", Calendar.getInstance().getTimeInMillis());
 			
 			try {
+				analyze("responseTime", "0", Agent.Config.timeout(), rtt);
+				
 				parseProcessor();
 				parseStorage();
 				parseInterface();
@@ -269,26 +377,35 @@ abstract public class ITAhMNode extends SNMPNode {
 				System.err.print(ioe);
 			}
 			
-			this.data.put("hrProcessorEntry", this.hrProcessorEntry);
-			this.data.put("hrStorageEntry", this.hrStorageEntry);
-			this.data.put("hrSWRunName", this.hrSWRunName);			
-			this.data.put("ifEntry", this.ifEntry);
-			
-			try {
-				save();
-			} catch (IOException ioe) {
-				System.err.print(ioe);
+			synchronized (this.data) {
+				this.data.put("hrProcessorEntry", this.hrProcessorEntry);
+				this.data.put("hrStorageEntry", this.hrStorageEntry);
+				this.data.put("hrSWRunName", this.hrSWRunName);			
+				this.data.put("ifEntry", this.ifEntry);
+				
+				try {
+					save();
+				} catch (IOException ioe) {
+					System.err.print(ioe);
+				}
 			}
 			
-			if (this.nodeManager.getNode(super.id) == null) {
-				this.nodeManager.setNode(super.id, this);
+			// sysObjectID 가 변동되었으면
+			if (this.data.has("sysObjectID") && !this.data.getString("sysObjectID").equals(this.enterprise)) {
+				// 최초일수도 있지만 변경된 경우 기존 정보를 삭제해 주기 위해 초기화
+				this.pdu = createDefaultPDU();
+				
+				this.enterprise = this.data.getString("sysObjectID");
+				
+				Enterprise.setEnterprisePDU(this.pdu, this.enterprise);
 			}
-		}
-		else {
-			this.nodeManager.removeTop(super.id);
 		}
 		
-		if (this.status != status) {
+		if (this.status != status) {if (super.tmp >0) {
+			System.out.println(super.tmp );
+			
+			super.tmp = 0;
+		}
 			this.status = status;
 			
 			String name = this.nodeManager.getNodeName(super.id);
@@ -297,10 +414,16 @@ abstract public class ITAhMNode extends SNMPNode {
 				.put("origin", "snmp")
 				.put("id", super.id)
 				.put("name", name)
-				.put("status", status)
+				.put("status", status == SnmpConstants.SNMP_ERROR_SUCCESS? true: false)
 				.put("message", String.format("%s SNMP %s",
 					name,
-					status == SnmpConstants.SNMP_ERROR_SUCCESS? "응답 정상": status == SnmpConstants.SNMP_ERROR_TIMEOUT? "응답 없음.": ("오류 코드 "+ status))), true);
+					status == SnmpConstants.SNMP_ERROR_SUCCESS? "응답 정상":
+					status == SnmpConstants.SNMP_ERROR_TIMEOUT? "응답 없음.":
+					("오류 코드 "+ status))), true);
+			
+			if (status != SnmpConstants.SNMP_ERROR_SUCCESS) {
+				this.nodeManager.removeTop(super.id);
+			}
 		}
 		// 할 일 다 마치고 호출해야 한다.
 		super.onSuccess(rtt);
@@ -335,25 +458,27 @@ abstract public class ITAhMNode extends SNMPNode {
 			indexData;
 		Critical critical;
 		
-		for (String resource: this.critical.keySet()) {
-			if (!this.data.has(resource)) {
-				continue;
-			}
-			
-			map = this.critical.get(resource);
-			entry = this.data.getJSONObject(resource);
-			
-			for (String index : map.keySet()) {
-				if (!entry.has(index)) {
+		synchronized(this.critical) {
+			for (String resource: this.critical.keySet()) {
+				if (!this.data.has(resource)) {
 					continue;
 				}
 				
-				indexData = entry.getJSONObject(index);
+				map = this.critical.get(resource);
+				entry = this.data.getJSONObject(resource);
 				
-				critical = map.get(index);
-				
-				indexData.put("critical", critical.critical);
-				indexData.put("status", critical.status);
+				for (String index : map.keySet()) {
+					if (!entry.has(index)) {
+						continue;
+					}
+					
+					indexData = entry.getJSONObject(index);
+					
+					critical = map.get(index);
+					
+					indexData.put("critical", critical.critical);
+					indexData.put("status", critical.status);
+				}
 			}
 		}
 		
@@ -377,7 +502,7 @@ abstract public class ITAhMNode extends SNMPNode {
 			}
 		}
 		
-		this.nodeManager.save(id, "snmp", this.data);
+		this.db.save(this.data);
 	}
 	
 	public void analyze(String resource, String index, long max, long value) {
@@ -385,50 +510,55 @@ abstract public class ITAhMNode extends SNMPNode {
 			return;
 		}
 		
-		Map<String, Critical> entry = this.critical.get(resource);
-		long rate;
+		synchronized(this.critical) {
+			Map<String, Critical> entry = this.critical.get(resource);
 		
-		if (resource.equals("hrProcessorEntry")) {
-			Critical critical = entry.get(index);
+			long rate;
 			
-			if (critical == null) {
-				if (!entry.containsKey("0")) {
+			if (resource.equals("hrProcessorEntry")) {
+				Critical critical = entry.get(index);
+				
+				if (critical == null) {
+					if (!entry.containsKey("0")) {
+						return;
+					}
+					
+					critical = entry.get("0").clone();
+						
+					entry.put(index, critical);
+				}
+				
+				rate = value *100 / max;
+						
+				if (critical.diff(rate)) {
+					for (String key : entry.keySet()) {
+						if ("0".equals(key) || index.equals(key)) {
+							continue;
+						}
+						
+						// false가 하나라도 있으면 not diff
+						// true -> false, true, true, true : false
+						// false -> true, true, true, true : true
+						if (entry.get(key).status == false) {
+							return;
+						}
+					}
+					
+					onCritical(resource, "0", critical.status, rate);
+				}
+			}
+			else {			
+				Critical critical = entry.get(index);
+			
+				if (critical == null) {
 					return;
 				}
 				
-				critical = entry.get("0").clone();
-					
-				entry.put(index, critical);
-			}
-					
-			rate = value *100 / max;
-					
-			if (critical.diff(rate)) {
-				for (String key : entry.keySet()) {
-					if ("0".equals(key) || index.equals(key)) {
-						continue;
-					}
-					
-					// 같은 상태가 하나라도 있으면 not diff
-					if (entry.get(key).status == critical.status) {
-						return;
-					}
+				rate = value *100 / max;
+				
+				if (critical.diff(rate)) {
+					onCritical(resource, index, critical.status, rate);
 				}
-				
-				onCritical(resource, "0", critical.status, rate);
-			}
-		}
-		else {			
-			Critical critical = entry.get(index);
-		
-			if (critical == null) {
-				return;
-			}
-			
-			rate = value *100 / max;
-				
-			if (critical.diff(rate)) {
-				onCritical(resource, index, critical.status, rate);
 			}
 		}
 	}
@@ -437,19 +567,25 @@ abstract public class ITAhMNode extends SNMPNode {
 		boolean critical = true;
 		Map<String, Critical> map;
 		
-		main: for (String key1 : this.critical.keySet()) {
-			map = this.critical.get(key1);
-			
-			for (String key2 : map.keySet()) {
-				if (!map.get(key2).status) {
-					critical = false;
+		synchronized(this.critical) {
+			main: for (String key1 : this.critical.keySet()) {
+				map = this.critical.get(key1);
 				
-					break main;
+				for (String key2 : map.keySet()) {
+					if (!map.get(key2).status) {
+						critical = false;
+					
+						break main;
+					}
 				}
 			}
 		}
 		
-		nodeManager.onCritical(this, critical);
+		try {
+			nodeManager.onCritical(this, critical);
+		} catch (IOException ioe) {
+			System.err.print(ioe);
+		}
 		
 		String name = this.nodeManager.getNodeName(super.id);
 		
@@ -460,13 +596,40 @@ abstract public class ITAhMNode extends SNMPNode {
 			.put("resource", resource)
 			.put("index", index)
 			.put("status", status)
-			.put("critical", critical)
 			.put("rate", rate)
-			.put("message", String.format("%s [%s] %d%% 임계 %s",
+			.put("message", String.format("%s %s %d%% 임계 %s",
 					name,
-					resource,
+					toResourceString(resource, index),
 					rate,
 					status? "정상": "초과")), true);	
+	}
+	
+	private String toResourceString(String resource, String index) {
+		JSONObject indexData;
+		
+		switch(resource) {
+		case "responseTime":
+			return "Response time";
+		case "hrProcessorEntry":
+			return "Processor load";
+		case "hrStorageEntry":
+			indexData = this.hrStorageEntry.get(index);
+			
+			if (indexData.getInt("hrStorageType") == 2) {
+				return "Memory";
+			}
+			else {
+				return String.format("Storage %s",
+					indexData.has("hrStorageDescr")? indexData.getString("hrStorageDescr"): "");
+			}
+		case "ifEntry":
+			indexData = this.ifEntry.get(index);
+			
+			return String.format("Storage %s",
+				indexData.has("ifName")? indexData.getString("ifName"): "");
+		}
+		
+		return "";
 	}
 	
 	@Override
@@ -1063,37 +1226,38 @@ abstract public class ITAhMNode extends SNMPNode {
 		}
 		
 	}
-
-	private final static OID OID_system = new OID(new int [] {1,3,6,1,2,1,1});
-	private final static OID OID_sysDescr = new OID(new int [] {1,3,6,1,2,1,1,1});
-	private final static OID OID_sysObjectID = new OID(new int [] {1,3,6,1,2,1,1,2});
-	private final static OID OID_sysName =  new OID(new int [] {1,3,6,1,2,1,1,5});
-	private final static OID OID_ifEntry =  new OID(new int [] {1,3,6,1,2,1,2,2,1});
-	private final static OID OID_ifDescr = new OID(new int [] {1,3,6,1,2,1,2,2,1,2});
-	private final static OID OID_ifType =  new OID(new int [] {1,3,6,1,2,1,2,2,1,3});
-	private final static OID OID_ifSpeed =  new OID(new int [] {1,3,6,1,2,1,2,2,1,5});
-	private final static OID OID_ifPhysAddress =  new OID(new int [] {1,3,6,1,2,1,2,2,1,6});
-	private final static OID OID_ifAdminStatus =  new OID(new int [] {1,3,6,1,2,1,2,2,1,7});
-	private final static OID OID_ifOperStatus =  new OID(new int [] {1,3,6,1,2,1,2,2,1,8});
-	private final static OID OID_ifInOctets =  new OID(new int [] {1,3,6,1,2,1,2,2,1,10});
-	private final static OID OID_ifInErrors =  new OID(new int [] {1,3,6,1,2,1,2,2,1,14});
-	private final static OID OID_ifOutOctets =  new OID(new int [] {1,3,6,1,2,1,2,2,1,16});
-	private final static OID OID_ifOutErrors =  new OID(new int [] {1,3,6,1,2,1,2,2,1,20});
-	private final static OID OID_host = new OID(new int [] {1,3,6,1,2,1,25});
-	private final static OID OID_hrSystemUptime = new OID(new int [] {1,3,6,1,2,1,25,1,1});
-	private final static OID OID_hrStorageEntry = new OID(new int [] {1,3,6,1,2,1,25,2,3,1});
-	private final static OID OID_hrStorageType = new OID(new int [] {1,3,6,1,2,1,25,2,3,1,2});
-	private final static OID OID_hrStorageDescr = new OID(new int [] {1,3,6,1,2,1,25,2,3,1,3});
-	private final static OID OID_hrStorageAllocationUnits = new OID(new int [] {1,3,6,1,2,1,25,2,3,1,4});
-	private final static OID OID_hrStorageSize = new OID(new int [] {1,3,6,1,2,1,25,2,3,1,5});
-	private final static OID OID_hrStorageUsed = new OID(new int [] {1,3,6,1,2,1,25,2,3,1,6});
-	private final static OID OID_hrProcessorLoad = new OID(new int [] {1,3,6,1,2,1,25,3,3,1,2});
-	private final static OID OID_hrSWRunName = new OID(new int [] {1,3,6,1,2,1,25,4,2,1,2});
-	private final static OID OID_ifXEntry = new OID(new int [] {1,3,6,1,2,1,31,1,1,1});
-	private final static OID OID_ifName =  new OID(new int [] {1,3,6,1,2,1,31,1,1,1,1});
-	private final static OID OID_ifHCInOctets =  new OID(new int [] {1,3,6,1,2,1,31,1,1,1,6});
-	private final static OID OID_ifHCOutOctets =  new OID(new int [] {1,3,6,1,2,1,31,1,1,1,10});
-	private final static OID OID_ifHighSpeed = new OID(new int [] {1,3,6,1,2,1,31,1,1,1,15});
-	private final static OID OID_ifAlias = new OID(new int [] {1,3,6,1,2,1,31,1,1,1,18});
-	private final static OID OID_enterprises = new OID(new int [] {1,3,6,1,4,1});
+	
+	public final static OID OID_mib2 = new OID(new int [] {1,3,6,1,2,1});
+	public final static OID OID_system = new OID(new int [] {1,3,6,1,2,1,1});
+	public final static OID OID_sysDescr = new OID(new int [] {1,3,6,1,2,1,1,1});
+	public final static OID OID_sysObjectID = new OID(new int [] {1,3,6,1,2,1,1,2});
+	public final static OID OID_sysName =  new OID(new int [] {1,3,6,1,2,1,1,5});
+	public final static OID OID_ifEntry =  new OID(new int [] {1,3,6,1,2,1,2,2,1});
+	public final static OID OID_ifDescr = new OID(new int [] {1,3,6,1,2,1,2,2,1,2});
+	public final static OID OID_ifType =  new OID(new int [] {1,3,6,1,2,1,2,2,1,3});
+	public final static OID OID_ifSpeed =  new OID(new int [] {1,3,6,1,2,1,2,2,1,5});
+	public final static OID OID_ifPhysAddress =  new OID(new int [] {1,3,6,1,2,1,2,2,1,6});
+	public final static OID OID_ifAdminStatus =  new OID(new int [] {1,3,6,1,2,1,2,2,1,7});
+	public final static OID OID_ifOperStatus =  new OID(new int [] {1,3,6,1,2,1,2,2,1,8});
+	public final static OID OID_ifInOctets =  new OID(new int [] {1,3,6,1,2,1,2,2,1,10});
+	public final static OID OID_ifInErrors =  new OID(new int [] {1,3,6,1,2,1,2,2,1,14});
+	public final static OID OID_ifOutOctets =  new OID(new int [] {1,3,6,1,2,1,2,2,1,16});
+	public final static OID OID_ifOutErrors =  new OID(new int [] {1,3,6,1,2,1,2,2,1,20});
+	public final static OID OID_host = new OID(new int [] {1,3,6,1,2,1,25});
+	public final static OID OID_hrSystemUptime = new OID(new int [] {1,3,6,1,2,1,25,1,1});
+	public final static OID OID_hrStorageEntry = new OID(new int [] {1,3,6,1,2,1,25,2,3,1});
+	public final static OID OID_hrStorageType = new OID(new int [] {1,3,6,1,2,1,25,2,3,1,2});
+	public final static OID OID_hrStorageDescr = new OID(new int [] {1,3,6,1,2,1,25,2,3,1,3});
+	public final static OID OID_hrStorageAllocationUnits = new OID(new int [] {1,3,6,1,2,1,25,2,3,1,4});
+	public final static OID OID_hrStorageSize = new OID(new int [] {1,3,6,1,2,1,25,2,3,1,5});
+	public final static OID OID_hrStorageUsed = new OID(new int [] {1,3,6,1,2,1,25,2,3,1,6});
+	public final static OID OID_hrProcessorLoad = new OID(new int [] {1,3,6,1,2,1,25,3,3,1,2});
+	public final static OID OID_hrSWRunName = new OID(new int [] {1,3,6,1,2,1,25,4,2,1,2});
+	public final static OID OID_ifXEntry = new OID(new int [] {1,3,6,1,2,1,31,1,1,1});
+	public final static OID OID_ifName =  new OID(new int [] {1,3,6,1,2,1,31,1,1,1,1});
+	public final static OID OID_ifHCInOctets =  new OID(new int [] {1,3,6,1,2,1,31,1,1,1,6});
+	public final static OID OID_ifHCOutOctets =  new OID(new int [] {1,3,6,1,2,1,31,1,1,1,10});
+	public final static OID OID_ifHighSpeed = new OID(new int [] {1,3,6,1,2,1,31,1,1,1,15});
+	public final static OID OID_ifAlias = new OID(new int [] {1,3,6,1,2,1,31,1,1,1,18});
+	public final static OID OID_enterprises = new OID(new int [] {1,3,6,1,4,1});
 }

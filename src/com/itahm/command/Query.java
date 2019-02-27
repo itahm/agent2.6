@@ -4,7 +4,6 @@ import java.io.IOException;
 
 import com.itahm.json.JSONException;
 import com.itahm.json.JSONObject;
-import com.itahm.node.Node;
 import com.itahm.Agent;
 import com.itahm.ITAhMNode;
 import com.itahm.http.Response;
@@ -13,9 +12,9 @@ public class Query extends Command {
 	
 	@Override
 	public void execute(JSONObject request, Response response) throws IOException {
-		Node node = Agent.node().getNode(request.getString("id"));
+		ITAhMNode node = Agent.node().getITAhMNode(request.getString("id"));
 		
-		if (node == null || !(node instanceof ITAhMNode)) {
+		if (node == null) {
 			throw new JSONException("Node not found.");
 		}
 		
@@ -24,7 +23,7 @@ public class Query extends Command {
 		JSONObject body;
 		
 		if (resource.equals("hrProcessorLoad")) {
-			body = ((ITAhMNode)node).getData(resource,
+			body = node.getData(resource,
 				request.getLong("start"),
 				request.getLong("end"),
 				request.has("summary")? request.getBoolean("summary"): false);
@@ -32,13 +31,13 @@ public class Query extends Command {
 		else if (resource.equals("throughput")) {
 			body = new JSONObject();
 			
-			body.put("in", ((ITAhMNode)node).getData("ifInOctets",
+			body.put("in", node.getData("ifInOctets",
 				String.valueOf(request.getInt("index")),
 				request.getLong("start"),
 				request.getLong("end"),
 				request.has("summary")? request.getBoolean("summary"): false));
 			
-			body.put("out", ((ITAhMNode)node).getData("ifOutOctets",
+			body.put("out", node.getData("ifOutOctets",
 				String.valueOf(request.getInt("index")),
 				request.getLong("start"),
 				request.getLong("end"),
@@ -47,20 +46,20 @@ public class Query extends Command {
 		else if (resource.equals("error")) {
 			body = new JSONObject();
 			
-			body.put("in", ((ITAhMNode)node).getData("ifInErrors",
+			body.put("in", node.getData("ifInErrors",
 				String.valueOf(request.getInt("index")),
 				request.getLong("start"),
 				request.getLong("end"),
 				request.has("summary")? request.getBoolean("summary"): false));
 			
-			body.put("out", ((ITAhMNode)node).getData("ifOutErrors",
+			body.put("out", node.getData("ifOutErrors",
 				String.valueOf(request.getInt("index")),
 				request.getLong("start"),
 				request.getLong("end"),
 				request.has("summary")? request.getBoolean("summary"): false));
 		}
 		else {
-			body = ((ITAhMNode)node).getData(resource,
+			body = node.getData(resource,
 				String.valueOf(request.getInt("index")),
 				request.getLong("start"),
 				request.getLong("end"),

@@ -8,20 +8,18 @@ import org.snmp4j.mp.SnmpConstants;
 import org.snmp4j.smi.OctetString;
 import org.snmp4j.smi.UdpAddress;
 
-import com.itahm.node.NodeListener;
-
 public class SNMPDefaultNode extends ITAhMNode {
 
-	public SNMPDefaultNode(NodeListener nodeListener, String id, String ip, int udp, String community, int version)
+	public SNMPDefaultNode(String id, String ip, int udp, String community, int version)
 			throws IOException {
-		this(nodeListener, id, ip, udp, community);
+		this(id, ip, udp, community);
 		
 		super.target.setVersion(version);
 	}
 	
-	public SNMPDefaultNode(NodeListener nodeListener, String id, String ip, int udp, String community)
+	public SNMPDefaultNode(String id, String ip, int udp, String community)
 			throws IOException {
-		super(nodeListener, id, ip, new CommunityTarget(new UdpAddress(InetAddress.getByName(ip), udp), new OctetString(community)));
+		super(id, ip, new CommunityTarget(new UdpAddress(InetAddress.getByName(ip), udp), new OctetString(community)));
 		
 		super.target.setVersion(SnmpConstants.version2c);
 	}

@@ -22,43 +22,43 @@ import com.itahm.database.Database;
 import com.itahm.http.Response;
 
 public class Agent {
-
+	
 	private static EventManager event;
-	public static DataCleaner cleaner;
 	private static Database db;
 	private static NodeManager node;
 	
-	public static void initialize(File root) throws IOException {
-		File dataRoot = new File(root, "data");
-		
-		dataRoot.mkdir();
-		
-		Setting.root(dataRoot);
+	private static DataCleaner cleaner = new DataCleaner() {
+		@Override
+		public void onDelete(File file) {				
+		}
+
+		@Override
+		public void onComplete(long count, long elapse) {
+			if (count != 0) {
+				event().put(new JSONObject()
+					.put("origin", "system")
+					.put("name", "System")
+					.put("status", true)
+					.put("message", count < 0?
+						String.format("파일 정리 취소."):
+						String.format("파일 정리 %d 건, 소요시간 %d ms", count, elapse)), false);
+			}
+		}};
+	
+	private static Timer timer = new Timer("ITAhM Cleaner");
+	private static TimerTask clean;
+	public static boolean ready = false;
+	
+	public static boolean start() throws IOException {
+		if(Config.root == null) {
+			return false;
+		}
 		
 		db = new Database();
 		
-		event = new EventManager(new File(dataRoot, "event"));
-
-		node = new NodeManager();
+		Config.initialize(db.get("config").json());
 		
-		cleaner = new DataCleaner(new File(dataRoot, "node"), 3) {
-
-			@Override
-			public void onDelete(File file) {				
-			}
-
-			@Override
-			public void onComplete(long count, long elapse) {
-				if (count != 0) {
-					event().put(new JSONObject()
-						.put("origin", "system")
-						.put("name", "System")
-						.put("status", true)
-						.put("message", count < 0?
-							String.format("파일 정리 취소."):
-							String.format("파일 정리 %d 건, 소요시간 %d ms", count, elapse)), false);
-				}
-			}};		
+		event = new EventManager(new File(Config.root, "event"));
 		
 		Calendar c = Calendar.getInstance();
 		
@@ -68,32 +68,38 @@ public class Agent {
 		c.set(Calendar.SECOND, 0);
 		c.set(Calendar.MILLISECOND, 0);
 		
-		new Timer("ITAhM Cleaner").schedule(new TimerTask() {
+		timer.schedule(clean = new TimerTask() {
 
+			private final File f = new File(Config.root, "node");
+			
 			@Override
 			public void run() {
-				int store = Setting.clean();
-				
-				if (store > 0) {
-					cleaner.clean(store);
+				if (Config.clean() > 0) {
+					cleaner.clean(f, 3, Config.clean());
 				}
 			}}, c.getTimeInMillis(), 1000*60*60*24);
 		
-		System.out.format("ITAhM Agent version %s ready.\n", Setting.version);
-	}
-	
-	public static void start() throws IOException {
+		System.out.format("ITAhM Agent version %s ready.\n", Config.version);
+		
+		node = new NodeManager();
+		
 		node.start();
+		
+		return ready = true;
 	}
 	
 	public static void stop() throws IOException {
+		ready = false;
+		
+		clean.cancel();
+		
 		node.stop();
 	}
 	
 	public static JSONObject signIn(JSONObject data) {
 		String username = data.getString("username");
 		String password = data.getString("password");
-		JSONObject accountData = db().get("account").json;
+		JSONObject accountData = db().get("account").json();
 		
 		if (accountData.has(username)) {
 			 JSONObject account = accountData.getJSONObject(username);
@@ -169,46 +175,60 @@ public class Agent {
 		return true;
 	}
 
-	public static boolean isValidLicense(byte [] mac) throws SocketException {
+	public static boolean isValidLicense(byte [] mac) {
 		if (mac == null) {
 			return true;
 		}
 		
-		Enumeration<NetworkInterface> e = NetworkInterface.getNetworkInterfaces();
-		NetworkInterface ni;
-		byte [] ba;
+		Enumeration<NetworkInterface> e;
 		
-		while(e.hasMoreElements()) {
-			ni = e.nextElement();
+		try {
+			e = NetworkInterface.getNetworkInterfaces();
+		
+			NetworkInterface ni;
+			byte [] ba;
 			
-			if (ni.isUp() && !ni.isLoopback() && !ni.isVirtual()) {
-				 ba = ni.getHardwareAddress();
-				 
-				 if(ba!= null) {
-					 if (Arrays.equals(mac, ba)) {
-						 return true; 
+			while(e.hasMoreElements()) {
+				ni = e.nextElement();
+				
+				if (ni.isUp() && !ni.isLoopback() && !ni.isVirtual()) {
+					 ba = ni.getHardwareAddress();
+					 
+					 if(ba!= null) {
+						 if (Arrays.equals(mac, ba)) {
+							 return true; 
+						 }
 					 }
-				 }
+				}
 			}
+		} catch (SocketException se) {
 		}
 		
 		return false;
 	}
 	
-	public static class Setting {
-		private static int rollingInterval = 1; //minutes
-		private static long requestInterval = 10000; // milliseconds
+	public static class Config {
+		private static int saveInterval = 1; //minutes
+		private static long snmpInterval = 10000; // milliseconds
 		private static JSONObject smtp = null;
 		private static HTTPListener listener = null;
 		private static long limit = 0;
 		private static int store = 0;
-		private static File dataRoot = null;
+		private static File root = null;
 		private static long expire = 0;
-		private static int top = 10;
-		private static long timeout = 10000;
-		public static int retry = 0;
-		
+		private static int top = 5;
+		private static int timeout = 5000;
+		private static int retry = 0;
 		public final static String version = "3.0.1";
+		
+		public static void health(int i, boolean b) {
+			timeout = Byte.toUnsignedInt((byte)(i & 0x0f)) *1000;
+			retry = Byte.toUnsignedInt((byte)((i >> 4)& 0x0f));
+		
+			if (b) {
+				node().setHealth(timeout, retry);
+			}
+		}
 		
 		public static long expire() {
 			return expire;
@@ -218,24 +238,28 @@ public class Agent {
 			expire = l;
 		}
 
-		public static int rollingInterval() {
-			return rollingInterval;
+		public static int saveInterval() {
+			return saveInterval;
 		}
 		
-		public static void rollingInterval(int i) {
-			rollingInterval = i;
+		public static void saveInterval(int i) {
+			saveInterval = i;
 		}
 		
-		public static long requestInterval() {
-			return requestInterval;
+		public static long snmpInterval() {
+			return snmpInterval;
 		}
 		
-		public static void requestInterval(long l) {
-			requestInterval = l;
+		public static void snmpInterval(long l) {
+			snmpInterval = l;
 		}
 		
-		public static void smtp(JSONObject jsono) {
+		public static void smtp(JSONObject jsono, boolean set) {
 			smtp = jsono;
+			
+			if (set) {
+				Agent.event().setSMTP(smtp);
+			}
 		}
 		
 		public static JSONObject smtp() {
@@ -258,8 +282,12 @@ public class Agent {
 			return limit;
 		}
 		
-		public static void clean(int i) {
+		public static void clean(int i, boolean clean) {
 			store = i;
+			
+			if (clean) {
+				cleaner.clean(new File(Config.root, "node"), 3, i);
+			}
 		}
 		
 		public static int clean() {
@@ -267,11 +295,15 @@ public class Agent {
 		}
 		
 		public static void root(File f) {
-			dataRoot = f;
+			File dataRoot = new File(f, "data");
+			
+			dataRoot.mkdir();
+			
+			root = dataRoot;
 		}
 		
 		public static File root() {
-			return dataRoot;
+			return root;
 		}
 		
 		public static void top(int i) {
@@ -282,20 +314,46 @@ public class Agent {
 			return top;
 		}
 		
-		public static void timeout(long l) {
-			timeout = l;
-		}
-		
 		public static long timeout() {
 			return timeout;
 		}
 		
-		public static void retry(int i) {
-			retry = i;
-		}
-		
 		public static int retry() {
 			return retry;
+		}
+		
+		private static void initialize(JSONObject config) {
+			String key;
+			for (Object o : config.keySet()) {
+				key = (String)o;
+				
+				switch((key).toLowerCase()) {
+				case "health":
+					health(config.getInt(key), false);
+					
+					break;
+				case "snmpInterval":
+					snmpInterval(config.getLong(key));
+					
+					break;
+				case "clean":
+					clean(config.getInt(key), false);
+					
+					break;
+				case "saveInterval":
+					saveInterval(config.getInt(key));
+					
+					break;
+				case "top":
+					top(config.getInt(key));
+					
+					break;
+				case "smtp":
+					smtp(config.getJSONObject(key), false);
+					
+					break;
+				}
+			}
 		}
 	}
 	

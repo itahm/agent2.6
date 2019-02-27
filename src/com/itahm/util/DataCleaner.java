@@ -1,7 +1,6 @@
 package com.itahm.util;
 
 import java.io.File;
-import java.io.IOException;
 import java.util.Calendar;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -15,23 +14,19 @@ abstract public class DataCleaner implements Runnable{
 	private boolean isRun = false;
 	private boolean cancel = false;
 	
-	public DataCleaner(File origin) throws IOException {
-		this(origin, 0);
+	public DataCleaner() {
+		this.thread.setDaemon(true);
+		this.thread.start();
 	}
-	
-	public DataCleaner(File origin, int depth) throws IOException {
+
+	public boolean clean(File origin, int depth, int store) {
 		if (!origin.isDirectory()) {
-			throw new IOException("Root is not directory.");
+			return false;
 		}
 		
 		this.origin = origin;
 		this.depth = depth;
 		
-		this.thread.setDaemon(true);
-		this.thread.start();
-	}
-
-	public boolean clean(int store) {
 		Calendar c = Calendar.getInstance();
 		
 		c.set(Calendar.HOUR_OF_DAY, 0);
@@ -41,13 +36,13 @@ abstract public class DataCleaner implements Runnable{
 		
 		c.add(Calendar.DATE, store *-1);
 		
-		if (!isRun) {
-			this.queue.offer(c.getTimeInMillis());
-			
-			return isRun = true;
+		if (isRun) {
+			return false;
 		}
-		
-		return false;
+			
+		this.queue.offer(c.getTimeInMillis());
+			
+		return isRun = true;
 	}
 	
 	public void cancel() {

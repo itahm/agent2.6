@@ -15,6 +15,7 @@ public class HTTPProcessor extends Thread {
 		request = connection.createRequest();
 		
 		setDaemon(true);
+		setName("ITAhM HTTPProcessor");
 		
 		start();
 	}
@@ -49,7 +50,7 @@ public class HTTPProcessor extends Thread {
 			String id = session.getId();
 			
 			if (id != this.request.getRequestedSessionId()) {
-				response.setHeader("Set-Cookie", String.format("SESSION=%s; HttpOnly", id));
+				response.setHeader("Set-Cookie", String.format("%s=%s; HttpOnly", Session.ID, id));
 			}
 		}
 		

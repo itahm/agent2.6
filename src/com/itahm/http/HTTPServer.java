@@ -15,6 +15,8 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Set;
 
+import com.itahm.json.JSONObject;
+
 public abstract class HTTPServer implements Runnable, Closeable {
 	
 	private final static int BUF_SIZE = 2048;
@@ -25,30 +27,26 @@ public abstract class HTTPServer implements Runnable, Closeable {
 	private final Set<Connection> connections = new HashSet<Connection>();
 	
 	private Boolean closed = false;
-	
-	public HTTPServer() throws IOException {
-		this("0.0.0.0", 80);
-	}  
 
-	public HTTPServer(String ip) throws IOException {
-		this(ip, 80);
-	}
-	
-	public HTTPServer(int tcp) throws IOException {
-		this("0.0.0.0", tcp);
-	}
-	
-	public HTTPServer(String ip, int tcp) throws IOException {
-		this(new InetSocketAddress(InetAddress.getByName(ip), tcp));
-	}
-	
-	public HTTPServer(InetSocketAddress addr) throws IOException {
+	public HTTPServer(JSONObject config) throws IOException {
+		if (!config.has("ip")) {
+			config.put("ip", "0.0.0.0");
+		}
+		
+		if (!config.has("tcp")) {
+			config.put("tcp", 2014);
+		}
+		
+		init(config);
+		
 		channel = ServerSocketChannel.open();
 		listener = channel.socket();
 		selector = Selector.open();
 		buffer = ByteBuffer.allocateDirect(BUF_SIZE);
 		
-		listener.bind(addr);
+		listener.bind(new InetSocketAddress(
+			InetAddress.getByName(config.getString("ip")), config.getInt("tcp")));
+		
 		channel.configureBlocking(false);
 		channel.register(selector, SelectionKey.OP_ACCEPT);
 		
@@ -191,6 +189,7 @@ public abstract class HTTPServer implements Runnable, Closeable {
 		}
 	}
 	
+	abstract public void init(JSONObject args0);
 	abstract public void doPost(Request connection, Response response);	
 	abstract public void doGet(Request connection, Response response);
 }

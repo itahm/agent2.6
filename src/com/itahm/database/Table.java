@@ -8,13 +8,13 @@ import java.nio.file.StandardCopyOption;
 import com.itahm.json.JSONObject;
 import com.itahm.util.Util;
 
-public class Data {
+public class Table {
 
-	public final JSONObject json;
-	protected Path
+	private JSONObject json;
+	private Path
 		path, backup;
 	
-	public Data(Path path) throws IOException {
+	public Table(Path path) throws IOException {
 		String id = path.getFileName().toString();
 		
 		this.path = path;
@@ -44,10 +44,20 @@ public class Data {
 		}
 	}
 	
-	public void save() throws IOException {
+	public synchronized void save() throws IOException {
 		Files.move(this.path, this.backup, StandardCopyOption.REPLACE_EXISTING);
 		
 		Util.putJSONtoFile(this.path, this.json);
+	}
+	
+	public JSONObject json() {
+		return this.json;
+	}
+	
+	public void save(JSONObject json) throws IOException {
+		this.json = json;
+		
+		save();
 	}
 
 }

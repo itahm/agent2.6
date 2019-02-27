@@ -4,7 +4,7 @@ import java.io.IOException;
 
 import com.itahm.json.JSONObject;
 import com.itahm.Agent;
-import com.itahm.database.Data;
+import com.itahm.database.Table;
 import com.itahm.http.Response;
 
 public class Config extends Command {
@@ -12,50 +12,43 @@ public class Config extends Command {
 	@Override
 	public void execute(JSONObject request, Response response) throws IOException {
 		final String key = request.getString("key");
-		Data data = Agent.db().get("config");
+		Table data = Agent.db().get("config");
 		
 		switch(key) {
-		case "rollingInterval":
-			int rollingInterval = request.getInt("value");
+		case "health":
+			Agent.Config.health(request.getInt("value"), true);
 			
-			Agent.Setting.rollingInterval(rollingInterval);
-		
-			data.json.put("rollingInterval", rollingInterval);
+			break;
+		case "snmpInterval":
+			Agent.Config.snmpInterval(request.getLong("value"));
+			
+			break;
+		case "clean":
+			Agent.Config.clean(request.getInt("value"), true);
+			
+			break;
+		case "saveInterval":
+			Agent.Config.saveInterval(request.getInt("value"));
 			
 			break;
 		
 		case "top":
-			int top = request.getInt("value");
-			
-			Agent.Setting.top(top);
+			Agent.Config.top(request.getInt("value"));
 		
-			data.json.put("top", top);
-			
-			break;
-		
-		case "requestInterval":
-			long requestInterval = request.getLong("value");
-			
-			Agent.Setting.requestInterval(requestInterval);
-			
-			data.json.put("requestInterval", requestInterval);
-			
-			break;
+			break;		
 			
 		case "smtp":
-			JSONObject smtp = request.getJSONObject("smtp");
-			
-			Agent.event().setSMTP(smtp);
-			
-			data.json.put("smtp", smtp);
+			Agent.Config.smtp(request.getJSONObject("value"), true);
 			
 			break;
 			
-		case "config":
-			data.json.put("config", request.getJSONObject("value"));
-			
-			break;
+		
+		default:
+			response.setStatus(Response.Status.BADREQUEST);
+			response.write(new JSONObject().put("error", "Config not found.").toString());
 		}
+		
+		data.json().put(key, request.get("value"));
 		
 		data.save();
 	}
