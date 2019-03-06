@@ -38,28 +38,32 @@ abstract public class Node implements Runnable, Closeable {
 					throw new InterruptedException();
 				}
 				
-				sent = System.currentTimeMillis();
-				
 				for (int i=0; i<this.retry; i++) {
 					if (this.thread.isInterrupted()) {
 						break loop;
 					}
 					
 					try {
+						sent = System.currentTimeMillis();
+						
 						if (isReachable()) {
+							
 							onSuccess(System.currentTimeMillis() - sent);
 							
 							continue loop;
 						}
-					} catch (IOException e) {
-						System.err.print(e);
+					} catch (IOException ie) {
+						System.err.print(ie);
 					}
 				}
 				
 				onFailure();
 				
-			} catch (InterruptedException e) {
-				System.err.print(e);
+			} catch (InterruptedException ie) {
+				if (!this.isClosed) {
+					System.err.print(ie);
+				}
+				
 				break;
 			}
 		}

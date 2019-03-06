@@ -50,7 +50,7 @@ public class Database {
 					table.json()
 						.put("default", new JSONObject()
 						.put("udp", 161)
-						.put("community", "nesp-pub")
+						.put("community", "public")
 						.put("version", "v2c"));
 					
 					table.save();

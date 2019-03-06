@@ -57,7 +57,7 @@ public class TempNode implements Runnable {
 			switch(profile.getString("version").toLowerCase()) {
 			case "v3":
 				target = new UserTarget();
-				System.out.println(profile.getString("user"));
+				
 				target.setSecurityName(new OctetString(profile.getString("user")));
 				target.setSecurityLevel(profile.getInt("level"));
 				

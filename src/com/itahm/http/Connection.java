@@ -306,7 +306,7 @@ public class Connection implements Closeable {
 				for(i=0, length=cookies.length; i<length; i++) {
 					token = cookies[i].split("=");
 					
-					if (token.length == 2 && Session.ID.equals(token[0])) {
+					if (token.length == 2 && Session.ID.equals(token[0]) && token[1].trim().length() > 0) {
 						cookie = token[1];
 						
 						break;
@@ -329,7 +329,11 @@ public class Connection implements Closeable {
 		
 		@Override
 		public Session getSession(boolean create) {
-			if (this.session == null && this.cookie != null) {
+			if (this.session != null) {
+				return this.session;
+			}
+			
+			if (this.cookie != null) {
 				this.session = Session.find(this.cookie);
 			}
 			

@@ -59,9 +59,6 @@ public class Response {
 		}
 	};
 	
-	public Response() {
-	}
-	
 	public void setStatus(Status status) {
 		this.status = status;
 	}
@@ -129,7 +126,4 @@ public class Response {
 		return ByteBuffer.wrap(message);
 	}
 	
-	public static void main(String [] args) {
-		System.out.println("".getBytes());
-	}
 }

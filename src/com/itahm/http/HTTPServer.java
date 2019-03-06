@@ -37,8 +37,6 @@ public abstract class HTTPServer implements Runnable, Closeable {
 			config.put("tcp", 2014);
 		}
 		
-		init(config);
-		
 		channel = ServerSocketChannel.open();
 		listener = channel.socket();
 		selector = Selector.open();
@@ -49,6 +47,8 @@ public abstract class HTTPServer implements Runnable, Closeable {
 		
 		channel.configureBlocking(false);
 		channel.register(selector, SelectionKey.OP_ACCEPT);
+		
+		init(config);
 		
 		Thread t = new Thread(this);
 		

@@ -114,6 +114,8 @@ public class NodeManager extends Snmp implements NodeListener {
 	}
 	
 	public void stop() throws IOException {
+		System.out.println("Stop Node manager.");
+		
 		for (Iterator<String> it = this.map.keySet().iterator(); it.hasNext(); ) {
 			this.map.get(it.next()).close();
 			
@@ -147,7 +149,8 @@ public class NodeManager extends Snmp implements NodeListener {
 				.put("id", id)
 				.put("ip", ip)
 				.put("protocol", "snmp")
-				.put("profile", profile);
+				.put("profile", profile)
+				.put("status", true);
 			
 			addIndex(base);
 			
@@ -169,8 +172,10 @@ public class NodeManager extends Snmp implements NodeListener {
 		String id = this.index.get(ip);
 		JSONObject base = this.nodeTable.json().getJSONObject(id);
 		
-		base.put("protocol", "snmp");
-		base.put("profile", profile);
+		base
+			.put("protocol", "snmp")
+			.put("profile", profile)
+			.put("status", true);
 		
 		this.nodeTable.save();
 		

@@ -94,6 +94,8 @@ public class Agent {
 		clean.cancel();
 		
 		node.stop();
+		
+		System.out.println("ITAhM Agent destroyed.");
 	}
 	
 	public static JSONObject signIn(JSONObject data) {
@@ -218,7 +220,7 @@ public class Agent {
 		private static long expire = 0;
 		private static int top = 5;
 		private static int timeout = 5000;
-		private static int retry = 0;
+		private static int retry = 2;
 		public final static String version = "3.0.1";
 		
 		public static void health(int i, boolean b) {

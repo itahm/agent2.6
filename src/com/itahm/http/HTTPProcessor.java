@@ -47,10 +47,8 @@ public class HTTPProcessor extends Thread {
 		Session session = this.request.getSession(false);
 		
 		if (session != null) {
-			String id = session.getId();
-			
-			if (id != this.request.getRequestedSessionId()) {
-				response.setHeader("Set-Cookie", String.format("%s=%s; HttpOnly", Session.ID, id));
+			if (!session.id.equals(request.getRequestedSessionId())) {
+				response.setHeader("Set-Cookie", String.format("%s=%s; HttpOnly", Session.ID, session.id));
 			}
 		}
 		

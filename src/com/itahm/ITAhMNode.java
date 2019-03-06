@@ -401,11 +401,7 @@ abstract public class ITAhMNode extends SNMPNode {
 			}
 		}
 		
-		if (this.status != status) {if (super.tmp >0) {
-			System.out.println(super.tmp );
-			
-			super.tmp = 0;
-		}
+		if (this.status != status) {
 			this.status = status;
 			
 			String name = this.nodeManager.getNodeName(super.id);
@@ -625,7 +621,7 @@ abstract public class ITAhMNode extends SNMPNode {
 		case "ifEntry":
 			indexData = this.ifEntry.get(index);
 			
-			return String.format("Storage %s",
+			return String.format("Interface %s",
 				indexData.has("ifName")? indexData.getString("ifName"): "");
 		}
 		

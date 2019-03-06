@@ -21,7 +21,7 @@ abstract public class SNMPNode extends ICMPNode implements Closeable {
 
 	private final Snmp snmp;
 	protected final Target target;
-	public int tmp = 0;
+	
 	public SNMPNode(NodeManager manager, String id, String ip, Target target) throws IOException {
 		super(manager, id, ip);
 
@@ -54,7 +54,7 @@ abstract public class SNMPNode extends ICMPNode implements Closeable {
 		
 		PDU nextPDU = getNextPDU(request, response);
 		
-		if (nextPDU == null) {this.tmp = 0;
+		if (nextPDU == null) {
 			return SnmpConstants.SNMP_ERROR_SUCCESS;
 		}
 		

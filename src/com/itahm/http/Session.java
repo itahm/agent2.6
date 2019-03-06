@@ -15,7 +15,7 @@ public class Session {
 	
 	private final Map<String, Object> attribute = new HashMap<>();
 	private long timeout = 3600000L;
-	private final String id;
+	public final String id;
 	private TimerTask task;
 	
 	public Session() {
@@ -42,10 +42,6 @@ public class Session {
 		this.timeout = timeout * 1000;
 		
 		update();
-	}
-	
-	public String getId() {
-		return this.id;
 	}
 	
 	public Session update() {

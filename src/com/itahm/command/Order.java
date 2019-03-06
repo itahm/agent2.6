@@ -30,8 +30,6 @@ public class Order extends Command {
 			
 			break;
 		case "restore":
-			System.out.println("Processing restore...");
-			
 			try{
 				Agent.stop();
 				
@@ -43,7 +41,6 @@ public class Order extends Command {
 				System.err.print(e);
 			}
 			
-			System.out.println("Complete restore!");
 			break;
 		case "speed":
 			Agent.node().setSpeed(request.getString("id"), request.getJSONObject("speed"));
