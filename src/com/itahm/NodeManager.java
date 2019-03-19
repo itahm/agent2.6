@@ -9,6 +9,8 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import org.snmp4j.Snmp;
 import org.snmp4j.mp.MPv3;
@@ -26,6 +28,7 @@ import org.snmp4j.transport.DefaultUdpTransportMapping;
 
 import com.itahm.TopTable.Resource;
 import com.itahm.database.Table;
+import com.itahm.json.JSONArray;
 import com.itahm.json.JSONException;
 import com.itahm.json.JSONObject;
 import com.itahm.node.Node;
@@ -43,6 +46,7 @@ public class NodeManager extends Snmp implements NodeListener {
 	private final Table nodeTable;
 	private final Table posTable;
 	private final Table prfTable;
+	private final Table lineTable;
 	private final TopTable topTable = new TopTable();
 	
 	public NodeManager() throws NumberFormatException, JSONException, IOException {
@@ -55,6 +59,7 @@ public class NodeManager extends Snmp implements NodeListener {
 		this.nodeTable = Agent.db().get("node");
 		this.posTable = Agent.db().get("position");
 		this.prfTable = Agent.db().get("profile");
+		this.lineTable = Agent.db().get("line");
 		
 		Files.createDirectories(this.snmp);
 		
@@ -240,33 +245,39 @@ public class NodeManager extends Snmp implements NodeListener {
 		
 		nodeTable.save();
 		
-		if (this.posTable.json().has(id)) {
-			JSONObject
-				pos = posTable.json().getJSONObject(id),
-				peer;
-			
-			for (Object key : pos.getJSONObject("ifEntry").keySet()) {
-				peer = posTable.json().getJSONObject((String)key);
-				
-				if (peer != null) {
-					peer.getJSONObject("ifEntry").remove(id);
-				}
+		for (Object key : this.lineTable.json().keySet()) {
+			if (((String)key).indexOf(id) != -1) {
+				this.lineTable.json().remove((String)key);
 			}
-			
-			posTable.json().remove(id);
 		}
 		
-		if (base.getString("type").equals("group")) {
-			JSONObject child;
+		this.lineTable.save();
+		
+		if (base.has("type") && base.getString("type").equals("group")) {
+			JSONObject
+				pos = this.posTable.json().getJSONObject(id),
+				child;
+			String parent = null;
 			
-			for (Object key : posTable.json().keySet()) {
-				child = posTable.json().getJSONObject((String)key);
+			if (pos.has("parent")) {
+				parent = pos.getString("parent");
+			}
+			
+			for (Object key : this.posTable.json().keySet()) {
+				child = this.posTable.json().getJSONObject((String)key);
 				
 				if (child.has("parent") && id.equals(child.getString("parent"))) {
-					child.remove("parent");
+					if (parent != null) {
+						child.put("parent", parent);
+					}
+					else {
+						child.remove("parent");
+					}
 				}
 			}
 		}
+		
+		this.posTable.json().remove(id);
 		
 		this.posTable.save();
 	}
@@ -341,7 +352,7 @@ public class NodeManager extends Snmp implements NodeListener {
 		return id;
 	}
 	
-	public JSONObject getSNMP(String id) {
+	public JSONObject getSNMP(String id) throws IOException {
 		Node node = this.map.get(id);
 		
 		if (node != null && node != null && node instanceof ITAhMNode) {
@@ -361,6 +372,48 @@ public class NodeManager extends Snmp implements NodeListener {
 		}
 		
 		return null;
+	}
+	
+	public JSONObject getTraffic(JSONObject jsono) {
+		JSONObject indexData;
+		Pattern pattern = Pattern.compile("line\\.(\\d*)\\.(\\d*)");
+		Matcher matcher;
+		String id;
+		ITAhMNode node;
+		
+		for (Object key : jsono.keySet()) {
+			id = (String)key;
+			
+			matcher = pattern.matcher(id);
+			
+			if (!matcher.matches()) {
+				continue;
+			}
+			
+			indexData = jsono.getJSONObject(id);
+			
+			id = "node."+ matcher.group(1);
+			
+			if (indexData.has(id)) {
+				node = getITAhMNode(id);
+				
+				if (node != null) {
+					node.getInterface(indexData.getJSONObject(id));
+				}
+			}
+			
+			id = "node."+ matcher.group(2);
+			
+			if (indexData.has(id)) {
+				node = getITAhMNode(id);
+				
+				if (node != null) {
+					node.getInterface(indexData.getJSONObject(id));
+				}
+			}
+		}
+		
+		return jsono;
 	}
 	
 	private Node createSNMPNode(String id, String ip, JSONObject profile) throws IOException {
@@ -513,8 +566,11 @@ public class NodeManager extends Snmp implements NodeListener {
 		this.topTable.remove(id);
 	}
 	
-	public JSONObject getTop() {
-		return this.topTable.getTop(Agent.Config.top());
+	public JSONObject getTop(JSONArray list) {
+		return list == null?
+			this.topTable.getTop(Agent.Config.top()):
+			this.topTable.getTop(Agent.Config.top(), list);
+		
 	}
 		
 	public final long calcLoad() {

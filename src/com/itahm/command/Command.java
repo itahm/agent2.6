@@ -24,6 +24,8 @@ abstract public class Command {
 		
 		case "PULL": return new Pull();
 		
+		case "PUSH": return new Push();
+		
 		case "PUT": return new Put();
 		
 		case "QUERY": return new Query();

@@ -27,7 +27,7 @@ public class Database {
 		Table table;
 		
 		for (String name : new String [] 
-			{"account", "user", "profile", "icon", "config", "position", "address", "setting", "node"}) {
+			{"account", "user", "profile", "icon", "config", "position", "address", "setting", "node", "line"}) {
 			table = new Table(this.dataRoot.resolve(name));
 			
 			this.map.put(name, table);

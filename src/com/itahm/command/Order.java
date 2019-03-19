@@ -46,12 +46,18 @@ public class Order extends Command {
 			Agent.node().setSpeed(request.getString("id"), request.getJSONObject("speed"));
 			
 			break;
+		case "traffic":
+			response.write(Agent.node().getTraffic(request.getJSONObject("line")).toString());
+			
+			break;
 		case "updown":
 			Agent.node().setUpDown(request.getString("id"), request.getJSONObject("updown"));
 			
 			break;
 		case "top":
-			response.write(Agent.node().getTop().toString());
+			response.write(Agent.node()
+				.getTop(request.has("top")? request.getJSONArray("top"): null)
+				.toString());
 			
 			break;
 		}

@@ -292,6 +292,38 @@ abstract public class ITAhMNode extends SNMPNode {
 		return count;
 	}
 	
+	public void getInterface(JSONObject dest) {
+		if (!this.data.has("ifEntry") || !dest.has("index")) {
+			return;
+		}
+		
+		JSONObject ifEntry = this.data.getJSONObject("ifEntry");
+		String index = dest.getString("index");
+		
+		if (ifEntry.has(index)) {
+			JSONObject indexData = ifEntry.getJSONObject(index);
+			
+			if (indexData.has("ifOperStatus")) {
+				dest.put("ifOperStatus", indexData.get("ifOperStatus"));
+			}
+			
+			if (indexData.has("ifInBPS")) {
+				dest.put("ifInBPS", indexData.get("ifInBPS"));
+			}
+			
+			if (indexData.has("ifOutBPS")) {
+				dest.put("ifOutBPS", indexData.get("ifOutBPS"));
+			}
+			
+			if (indexData.has("speed")) {
+				dest.put("ifSpeed", indexData.get("speed"));
+			}
+			else if (indexData.has("ifSpeed")) {
+				dest.put("ifSpeed", indexData.get("ifSpeed"));
+			}
+		}
+	}
+	
 	public JSONObject
 	getData(String resource, String index, long start, long end, boolean summary)
 	throws IOException {
@@ -330,9 +362,10 @@ abstract public class ITAhMNode extends SNMPNode {
 		rollingFile.roll(value, Agent.Config.saveInterval());
 	}
 	
-	public JSONObject snmp() {
+	public JSONObject snmp() throws IOException {
 		synchronized (this.data) {
-			return this.data;
+			return this.data.keySet().size() > 0? this.data:
+				new Table(Paths.get(this.dir.toURI()).resolve("snmp")).json();
 		}
 	}
 	/**
@@ -340,17 +373,7 @@ abstract public class ITAhMNode extends SNMPNode {
 	 * 최종적으로 super.onSuccess를 호출해 주어야 한다.
 	 */
 	@Override
-	public void onSuccess(long rtt) {
-		try {
-			putData(Rolling.RESPONSETIME, "0", rtt);
-			
-			this.data.put("responseTime",
-				new JSONObject().put("0", new JSONObject().put("rtt",rtt)));
-			
-		} catch (IOException ioe) {
-			System.err.print(ioe);
-		}
-		
+	public void onSuccess(long rtt) {		
 		// 기존 정보를 삭제해 주기 위해 초기화
 		this.hrProcessorEntry.clear();
 		this.hrStorageEntry.clear();
@@ -363,13 +386,8 @@ abstract public class ITAhMNode extends SNMPNode {
 		
 		// 성공
 		if (status == SnmpConstants.SNMP_ERROR_SUCCESS) {
-			this.nodeManager.submitTop(super.id, TopTable.Resource.RESPONSETIME, new TopTable.Value(rtt, -1, "0"));
-			
-			this.data.put("lastResponse", Calendar.getInstance().getTimeInMillis());
-			
 			try {
-				analyze("responseTime", "0", Agent.Config.timeout(), rtt);
-				
+				parseResponse(rtt);
 				parseProcessor();
 				parseStorage();
 				parseInterface();
@@ -812,6 +830,24 @@ abstract public class ITAhMNode extends SNMPNode {
 		return true;
 	}
 	
+	private void parseResponse(long rtt) throws IOException {
+		final long timeout = Agent.Config.timeout();
+		
+		this.data.put("lastResponse", Calendar.getInstance().getTimeInMillis());
+		this.data.put("responseTime", new JSONObject()
+			.put("0", new JSONObject()
+				.put("rtt",rtt)
+				.put("timeout", timeout)));
+		
+		putData(Rolling.RESPONSETIME, "0", rtt);
+		
+		analyze("responseTime", "0", timeout, rtt);
+		
+		this.nodeManager.submitTop(super.id,
+			TopTable.Resource.RESPONSETIME,
+			new TopTable.Value(rtt, rtt *100 /timeout, "0"));
+	}
+	
 	private void parseProcessor() throws IOException {
 		JSONObject processorData;
 		TopTable.Value max = null;
@@ -891,8 +927,12 @@ abstract public class ITAhMNode extends SNMPNode {
 				
 				analyze("hrStorageEntry", index, capacity, tmpValue);
 				
-				this.nodeManager.submitTop(super.id, TopTable.Resource.MEMORY, new TopTable.Value(value, tmpValue *100 / capacity, index));
-				this.nodeManager.submitTop(super.id, TopTable.Resource.MEMORYRATE, new TopTable.Value(value, tmpValue *100 / capacity, index));
+				this.nodeManager.submitTop(super.id,
+					TopTable.Resource.MEMORY,
+					new TopTable.Value(value, tmpValue *100 / capacity, index));
+				this.nodeManager.submitTop(super.id,
+					TopTable.Resource.MEMORYRATE,
+					new TopTable.Value(value, tmpValue *100 / capacity, index));
 				
 				break;
 			//case 5:
