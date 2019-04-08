@@ -475,14 +475,16 @@ public class NodeManager extends Snmp implements NodeListener {
 						link = line.get(nodeID);
 						
 						if (link instanceof JSONArray) {
-							for (int i=0, _i=((JSONArray)link).length(); i<_i; i++) {
-								node.getInterface(((JSONArray)link).getJSONObject(i));
+							JSONArray jsona = (JSONArray)link;
+							for (int i=0, _i=jsona.length(); i<_i; i++) {
+								if (!jsona.isNull(i)) {
+									node.getInterface(jsona.getJSONObject(i));
+								}
 							}
 						}
 						else if (link instanceof JSONObject) {
 							node.getInterface((JSONObject)link);	
 						}
-						
 					}
 				}
 			}
