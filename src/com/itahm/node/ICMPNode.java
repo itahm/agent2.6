@@ -19,13 +19,12 @@ public class ICMPNode extends Node {
 	}
 
 	@Override
-	public boolean isReachable() throws IOException {
+	public boolean isReachable() {
 		try {
 			return this.ip.isReachable(super.timeout);
 		}
 		catch(IOException ioe) {
-			System.out.println("isReachable exception. ip: "+ ip);
-			throw ioe;
+			return false;
 		}
 	}
 	

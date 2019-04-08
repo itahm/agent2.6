@@ -92,7 +92,7 @@ public class NodeManager extends Snmp implements NodeListener {
 			
 			addIndex(node);
 			
-			createMonitor(node);
+			createMonitor(node); 
 			
 			try {
 				this.nodeNum = Math.max(this.nodeNum, Long.valueOf(id.replace(PREFIX_NODE, "")));
@@ -143,52 +143,125 @@ public class NodeManager extends Snmp implements NodeListener {
 	 * @return
 	 * @throws IOException
 	 */
-	public String onSearch(String ip, String profile) throws IOException {
+	public void onSearch(String ip, String profile) throws IOException {
 		synchronized(this.index) {
-			if (this.index.containsKey(ip)) {
-				return null;
-			}
-		
-			String id = String.format("%s%d", PREFIX_NODE, ++this.nodeNum);
-			JSONObject base = new JSONObject()
-				.put("id", id)
-				.put("ip", ip)
-				.put("protocol", "snmp")
-				.put("profile", profile)
-				.put("status", true);
+			String id;
+			JSONObject base;
 			
-			addIndex(base);
+			if (this.index.containsKey(ip)) {
+				id = this.index.get(ip);
+				base = this.nodeTable.json().getJSONObject(id);
+				
+				if (base.has("protocol")) {
+					switch(base.getString("protocol")) {
+					case "snmp":
+						
+						return;
+					case "icmp":
+						removeNode(id);
+					}
+				}
+				
+				base
+					.put("protocol", "snmp")
+					.put("profile", profile)
+					.put("status", true);
+			}
+			else {
+				id = String.format("%s%d", PREFIX_NODE, ++this.nodeNum);
+				base = new JSONObject()
+					.put("id", id)
+					.put("ip", ip)
+					.put("protocol", "snmp")
+					.put("profile", profile)
+					.put("role", "node")
+					.put("status", true);
+				
+				addIndex(base);
+			}
 			
 			this.nodeTable.json().put(id, base);
 			
 			this.nodeTable.save();
-		
+			
 			Node node = createSNMPNode(id, ip, this.prfTable.json().getJSONObject(profile));
 			
-			this.map.put(id, node);
+			startNode(id, node);
 			
-			node.ping(0);
-			
-			return id;
+			Agent.event().put(new JSONObject()
+				.put("origin", "search")
+				.put("id", id)
+				.put("name", "System")
+				.put("status", true)     /************************************************/
+				.put("protocol", "snmp") /************************************************/
+				.put("message", String.format("%s SNMP 탐지 성공", ip.replace("121.189.227", "172.16.0")/*ip*/)), false);
 		}
 	}
 	
-	public void onDetect(String ip, String profile) throws IOException {
-		String id = this.index.get(ip);
-		JSONObject base = this.nodeTable.json().getJSONObject(id);
+	public void onDetect(TempNode.Tester tester, boolean success) throws IOException {
+		JSONObject
+			base = this.nodeTable.json().getJSONObject(tester.id),
+			event = new JSONObject()
+				.put("origin", "test")
+				.put("id", tester.id)
+				.put("name", "System");
+		String protocol = "";
 		
-		base
-			.put("protocol", "snmp")
-			.put("profile", profile)
-			.put("status", true);
+		if (success) {
+			Node node = null;
+			
+			if (tester instanceof TempNode.SNMP) {
+				String profile = ((TempNode.SNMP)tester).profile;
+				
+				base
+					.put("protocol", "snmp")
+					.put("profile", profile)
+					.put("status", true);
+				
+				this.nodeTable.save();
+				
+				node = createSNMPNode(tester.id, tester.ip, this.prfTable.json().getJSONObject(profile));
+				
+				event.put("protocol", protocol = "snmp");
+			}
+			else if (tester instanceof TempNode.ICMP) {
+				node = new ICMPNode(this, tester.id, tester.ip);
+				
+				event.put("protocol", protocol = "icmp");
+			}
+			else if (tester instanceof TempNode.TCP) {
+				node = new TCPNode(this, tester.id, tester.ip);
+				
+				event.put("protocol", protocol = "tcp");
+			}
+			
+			if (node != null) {
+				startNode(tester.id, node);
+			}
+			
+			event
+				.put("status", true)
+				.put("message",
+					String.format("%s %s 등록 성공.", Agent.node().getNodeName(tester.id), protocol.toUpperCase()));
+		}
+		else {
+			if (tester instanceof TempNode.SNMP) {
+				event.put("protocol", protocol = "snmp");
+			}
+			else if (tester instanceof TempNode.ICMP) {
+				event.put("protocol", protocol = "icmp");
+			}
+			else if (tester instanceof TempNode.TCP) {
+				event.put("protocol", protocol = "tcp");
+			}
+			
+			event
+				.put("status", false)
+				.put("message",
+					String.format("%s %s 등록 실패.", Agent.node().getNodeName(tester.id), protocol.toUpperCase()));
+		}
 		
-		this.nodeTable.save();
-		
-		Node node = createSNMPNode(id, ip, this.prfTable.json().getJSONObject(profile));
-		
-		this.map.put(id, node);
-		
-		node.ping(0);
+		Agent.event().put(event, false);
 	}
 	
 	// User로 부터, 무조건 생성 | TCPNode 인 경우 별도 처리해야함
@@ -206,9 +279,9 @@ public class NodeManager extends Snmp implements NodeListener {
 			
 			this.nodeTable.save();
 			
-			if (base.has("ip") && base.has("type") && base.getString("type").equals("application")) {
+			if (base.has("ip") && base.has("role") && base.getString("role").equals("application")) {
 				// 테스트
-				new TCPNode(this, id, base.getString("ip")).ping(0);
+				new TempNode(id, base.getString("ip"), TempNode.Protocol.TCP);
 			}
 			
 			addIndex(base);
@@ -253,7 +326,7 @@ public class NodeManager extends Snmp implements NodeListener {
 		
 		this.lineTable.save();
 		
-		if (base.has("type") && base.getString("type").equals("group")) {
+		if (base.has("role") && "group".equals(base.getString("role"))) {
 			JSONObject
 				pos = this.posTable.json().getJSONObject(id),
 				child;
@@ -375,11 +448,12 @@ public class NodeManager extends Snmp implements NodeListener {
 	}
 	
 	public JSONObject getTraffic(JSONObject jsono) {
-		JSONObject indexData;
+		JSONObject line;
 		Pattern pattern = Pattern.compile("line\\.(\\d*)\\.(\\d*)");
 		Matcher matcher;
 		String id;
 		ITAhMNode node;
+		Object link;
 		
 		for (Object key : jsono.keySet()) {
 			id = (String)key;
@@ -390,25 +464,26 @@ public class NodeManager extends Snmp implements NodeListener {
 				continue;
 			}
 			
-			indexData = jsono.getJSONObject(id);
+			line = jsono.getJSONObject(id);
 			
-			id = "node."+ matcher.group(1);
+			for (String nodeID : new String [] {"node."+ matcher.group(1), "node."+ matcher.group(2)}) {
 			
-			if (indexData.has(id)) {
-				node = getITAhMNode(id);
-				
-				if (node != null) {
-					node.getInterface(indexData.getJSONObject(id));
-				}
-			}
-			
-			id = "node."+ matcher.group(2);
-			
-			if (indexData.has(id)) {
-				node = getITAhMNode(id);
-				
-				if (node != null) {
-					node.getInterface(indexData.getJSONObject(id));
+				if (line.has(nodeID)) {
+					node = getITAhMNode(nodeID);
+					
+					if (node != null) {
+						link = line.get(nodeID);
+						
+						if (link instanceof JSONArray) {
+							for (int i=0, _i=((JSONArray)link).length(); i<_i; i++) {
+								node.getInterface(((JSONArray)link).getJSONObject(i));
+							}
+						}
+						else if (link instanceof JSONObject) {
+							node.getInterface((JSONObject)link);	
+						}
+						
+					}
 				}
 			}
 		}
@@ -443,6 +518,13 @@ public class NodeManager extends Snmp implements NodeListener {
 		return node;
 	}
 	
+	private void startNode(String id, Node node) {
+		this.map.put(id, node);
+		
+		node.setHealth(Agent.Config.timeout(), Agent.Config.retry());
+		node.ping(0);
+	}
+	
 	private void removeNode(String id) {
 		Node node = this.map.remove(id);
 		
@@ -470,21 +552,20 @@ public class NodeManager extends Snmp implements NodeListener {
 		if (protocol != null) {
 			switch (protocol) {
 			case "snmp":
-				new TempNode(id, base.getString("ip"));
+				new TempNode(id, base.getString("ip"), TempNode.Protocol.SNMP);
 				
 				break;
 			case "icmp":
-				new ICMPNode(this, id, base.getString("ip")).ping(0);
+				new TempNode(id, base.getString("ip"), TempNode.Protocol.ICMP);
 				
 				break;
 			}
-		
 		}
 		
 		return true;
 	}
 	
-	public void createMonitor(JSONObject base) throws IOException {
+	private void createMonitor(JSONObject base) throws IOException {
 		if (!base.has("protocol") || !base.has("ip")) {
 			return;
 		}
@@ -512,9 +593,7 @@ public class NodeManager extends Snmp implements NodeListener {
 		}
 		
 		if (node != null) {
-			node.ping(0);
-			
-			this.map.put(id, node);
+			startNode(id, node);
 		}
 	}
 	
@@ -630,7 +709,7 @@ public class NodeManager extends Snmp implements NodeListener {
 
 	@Override
 	public void onSuccess(Node node, long time) {
-		if (!nodeTable.json().has(node.id)) {
+		if (!this.map.containsKey(node.id) || !nodeTable.json().has(node.id)) {
 			return;
 		}
 		
@@ -640,14 +719,9 @@ public class NodeManager extends Snmp implements NodeListener {
 				node instanceof ICMPNode? "icmp":
 				node instanceof TCPNode? "tcp": "",
 			name = getNodeName(node.id);
-		long delay = 0;
 		
-		if (!this.map.containsKey(node.id)) {
-			this.map.put(node.id, node);
-			
-			base
-				.put("protocol", protocol)
-				.put("status", true);
+		if (base.has("status") && !base.getBoolean("status")) {
+			base.put("status", true);
 			
 			try {
 				nodeTable.save();
@@ -656,44 +730,20 @@ public class NodeManager extends Snmp implements NodeListener {
 			}
 			
 			Agent.event().put(new JSONObject()
-				.put("origin", "test")
+				.put("origin", "status")
 				.put("id", node.id)
 				.put("protocol", protocol)
 				.put("name", name)
 				.put("status", true)
-				.put("message", String.format("%s %s 등록 성공", name, protocol.toUpperCase())), false);
-		}
-		else {
-			if (base.has("status") && !base.getBoolean("status")) {
-				base.put("status", true);
-				
-				try {
-					nodeTable.save();
-				} catch (IOException ioe) {
-					System.err.print(ioe);
-				}
-				
-				Agent.event().put(new JSONObject()
-					.put("origin", "status")
-					.put("id", node.id)
-					.put("protocol", protocol)
-					.put("name", name)
-					.put("status", true)
-					.put("message", String.format("%s %s 응답 정상.", name, protocol.toUpperCase())), false);
-			}
-			
-			delay = Agent.Config.snmpInterval();
+				.put("message", String.format("%s %s 응답 정상.", name, protocol.toUpperCase())), false);
 		}
 		
-		node.ping(delay);
+		node.ping(Agent.Config.snmpInterval());
 	}
 
-	/**
-	 * Node로 부터 호출
-	 */
 	@Override
 	public void onFailure(Node node) {
-		if (!this.nodeTable.json().has(node.id)) {
+		if (!this.map.containsKey(node.id) || !nodeTable.json().has(node.id)) {
 			return;
 		}
 		
@@ -702,51 +752,38 @@ public class NodeManager extends Snmp implements NodeListener {
 				node instanceof ICMPNode? "ICMP":
 				node instanceof TCPNode? "TCP": "";
 		
-		if (!this.map.containsKey(node.id)) {
+		if (!base.has("status")) {
+			base.put("status", false);
+			
+			try {
+				Agent.db().get("node").save();
+				
+			} catch (IOException ioe) {
+				System.err.print(ioe);
+			}
+		}
+		else if (base.getBoolean("status")) {
 			String name = getNodeName(node.id);
 			
+			base.put("status", false);
+			
+			try {
+				Agent.db().get("node").save();
+				
+			} catch (IOException ioe) {
+				System.err.print(ioe);
+			}
+			
 			Agent.event().put(new JSONObject()
-				.put("origin", "test")
+				.put("origin", "status")
 				.put("id", node.id)
 				.put("protocol", protocol.toLowerCase())
 				.put("name", name)
 				.put("status", false)
-				.put("message", String.format("%s %s 등록 실패", name, protocol)), false);
+				.put("message", String.format("%s %s 응답 없음.", name, protocol)), false);
 		}
-		else {
-			if (!base.has("status")) {
-				base.put("status", false);
-				
-				try {
-					Agent.db().get("node").save();
-					
-				} catch (IOException ioe) {
-					System.err.print(ioe);
-				}
-			}
-			else if (base.getBoolean("status")) {
-				String name = getNodeName(node.id);
-				
-				base.put("status", false);
-				
-				try {
-					Agent.db().get("node").save();
-					
-				} catch (IOException ioe) {
-					System.err.print(ioe);
-				}
-				
-				Agent.event().put(new JSONObject()
-					.put("origin", "status")
-					.put("id", node.id)
-					.put("protocol", protocol.toLowerCase())
-					.put("name", name)
-					.put("status", false)
-					.put("message", String.format("%s %s 응답 없음.", name, protocol)), false);
-			}
-			
-			node.ping(0);
-		}
+		
+		node.ping(0);
 	}
 	
 }

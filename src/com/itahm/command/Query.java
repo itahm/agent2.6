@@ -23,7 +23,7 @@ public class Query extends Command {
 		JSONObject body;
 		
 		if (resource.equals("hrProcessorLoad")) {
-			body = node.getData(resource,
+			body = node.getData(ITAhMNode.Resource.HRPROCESSORLOAD,
 				request.getLong("start"),
 				request.getLong("end"),
 				request.has("summary")? request.getBoolean("summary"): false);
@@ -31,13 +31,13 @@ public class Query extends Command {
 		else if (resource.equals("throughput")) {
 			body = new JSONObject();
 			
-			body.put("in", node.getData("ifInOctets",
+			body.put("in", node.getData(ITAhMNode.Resource.IFINBPS,
 				String.valueOf(request.getInt("index")),
 				request.getLong("start"),
 				request.getLong("end"),
 				request.has("summary")? request.getBoolean("summary"): false));
 			
-			body.put("out", node.getData("ifOutOctets",
+			body.put("out", node.getData(ITAhMNode.Resource.IFOUTBPS,
 				String.valueOf(request.getInt("index")),
 				request.getLong("start"),
 				request.getLong("end"),
@@ -46,20 +46,20 @@ public class Query extends Command {
 		else if (resource.equals("error")) {
 			body = new JSONObject();
 			
-			body.put("in", node.getData("ifInErrors",
+			body.put("in", node.getData(ITAhMNode.Resource.IFINERRORS,
 				String.valueOf(request.getInt("index")),
 				request.getLong("start"),
 				request.getLong("end"),
 				request.has("summary")? request.getBoolean("summary"): false));
 			
-			body.put("out", node.getData("ifOutErrors",
+			body.put("out", node.getData(ITAhMNode.Resource.IFOUTERRORS,
 				String.valueOf(request.getInt("index")),
 				request.getLong("start"),
 				request.getLong("end"),
 				request.has("summary")? request.getBoolean("summary"): false));
 		}
 		else {
-			body = node.getData(resource,
+			body = node.getData(ITAhMNode.Resource.valueof(resource),
 				String.valueOf(request.getInt("index")),
 				request.getLong("start"),
 				request.getLong("end"),

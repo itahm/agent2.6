@@ -114,11 +114,9 @@ public class EventManager extends DailyFile {
 		}
 	}
 	
-	public JSONObject getEvent(long index) {
-		String i = Long.toString(index);
-		
-		if (this.log.has(i)) {
-			return this.log.getJSONObject(i);
+	public JSONObject getEvent(String index) {
+		if (this.log.has(index)) {
+			return this.log.getJSONObject(index);
 		}
 		
 		return null;

@@ -38,7 +38,7 @@ abstract public class Node implements Runnable, Closeable {
 					throw new InterruptedException();
 				}
 				
-				for (int i=0; i<this.retry; i++) {
+				for (int i=-1; i<this.retry; i++) {
 					if (this.thread.isInterrupted()) {
 						break loop;
 					}

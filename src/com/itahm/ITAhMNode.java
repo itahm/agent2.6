@@ -31,10 +31,10 @@ import com.itahm.node.SNMPNode;
 
 abstract public class ITAhMNode extends SNMPNode {
 
-	enum Rolling {
+	public enum Resource {
 		HRPROCESSORLOAD("hrProcessorLoad"),
-		IFINOCTETS("ifInOctets"),
-		IFOUTOCTETS("ifOutOctets"),
+		IFINBPS("ifInBPS"),
+		IFOUTBPS("ifOutBPS"),
 		IFINERRORS("ifInErrors"),
 		IFOUTERRORS("ifOutErrors"),
 		HRSTORAGEUSED("hrStorageUsed"),
@@ -42,12 +42,22 @@ abstract public class ITAhMNode extends SNMPNode {
 		
 		private String resource;
 		
-		private Rolling(String resource) {
+		private Resource(String resource) {
 			this.resource = resource;
 		}
 		
 		public String toString() {
 			return this.resource;
+		}
+		
+		public static Resource valueof(String resource) {
+			for (Resource r : values()) {
+				if (r.toString().equals(resource)) {
+					return r;
+				}
+			}
+			
+			return null;
 		}
 	}
 	
@@ -66,7 +76,7 @@ abstract public class ITAhMNode extends SNMPNode {
 	private final Map<String, JSONObject> hrStorageEntry = new HashMap<>();
 	private final Map<String, JSONObject> ifEntry = new HashMap<>();
 	private final Map<String, String> hrSWRunName = new HashMap<>();
-	private final Map<Rolling, HashMap<String, RollingFile>> rolling = new HashMap<Rolling, HashMap<String, RollingFile>>();
+	private final Map<Resource, HashMap<String, RollingFile>> rolling = new HashMap<Resource, HashMap<String, RollingFile>>();
 	private final Table db;
 	private PDU pdu = createDefaultPDU();
 	private String enterprise;
@@ -90,7 +100,7 @@ abstract public class ITAhMNode extends SNMPNode {
 		target.setTimeout(TIMEOUT);
 		target.setRetries(RETRY);
 		
-		for (Rolling resource : Rolling.values()) {
+		for (Resource resource : Resource.values()) {
 			rolling.put(resource, new HashMap<String, RollingFile>());
 			
 			new File(this.dir, resource.toString()).mkdir();
@@ -270,7 +280,7 @@ abstract public class ITAhMNode extends SNMPNode {
 		long sum = 0;
 		long count = 0;
 		
-		for (Rolling resource : this.rolling.keySet()) {
+		for (Resource resource : this.rolling.keySet()) {
 			map = this.rolling.get(resource);
 			
 			for (String index : map.keySet()) {
@@ -285,7 +295,7 @@ abstract public class ITAhMNode extends SNMPNode {
 	public long getResourceCount() {
 		long count = 0;
 		
-		for (Rolling resource : this.rolling.keySet()) {
+		for (Resource resource : this.rolling.keySet()) {
 			count += this.rolling.get(resource).size();
 		}
 		
@@ -325,10 +335,10 @@ abstract public class ITAhMNode extends SNMPNode {
 	}
 	
 	public JSONObject
-	getData(String resource, String index, long start, long end, boolean summary)
+	getData(Resource resource, String index, long start, long end, boolean summary)
 	throws IOException {
 		RollingFile rollingFile
-			= this.rolling.get(Rolling.valueOf(resource.toUpperCase())).get(index);
+			= this.rolling.get(resource).get(index);
 		
 		if (rollingFile == null) {
 			return new JSONObject();
@@ -339,9 +349,9 @@ abstract public class ITAhMNode extends SNMPNode {
 	}
 	
 	public JSONObject
-	getData(String resource, long start, long end, boolean summary)
+	getData(Resource resource, long start, long end, boolean summary)
 	throws IOException {
-		HashMap<String, RollingFile> map = this.rolling.get(Rolling.valueOf(resource.toUpperCase()));
+		HashMap<String, RollingFile> map = this.rolling.get(resource);
 		JSONObject data = new JSONObject();
 		
 		for (String index: map.keySet()) {
@@ -351,7 +361,7 @@ abstract public class ITAhMNode extends SNMPNode {
 		return data;
 	}
 	
-	private void putData(Rolling resource, String index, long value) throws IOException {
+	private void putData(Resource resource, String index, long value) throws IOException {
 		Map<String, RollingFile> rolling = this.rolling.get(resource);
 		RollingFile rollingFile = rolling.get(index);
 		
@@ -779,7 +789,6 @@ abstract public class ITAhMNode extends SNMPNode {
 	private final boolean parseHost(OID response, Variable variable, OID request) throws JSONException, IOException {
 		if (request.startsWith(OID_hrSystemUptime) && response.startsWith(OID_hrSystemUptime)) {
 			this.data.put("hrSystemUptime", ((TimeTicks)variable).toMilliseconds());
-			
 			return false;
 		}
 		
@@ -839,7 +848,7 @@ abstract public class ITAhMNode extends SNMPNode {
 				.put("rtt",rtt)
 				.put("timeout", timeout)));
 		
-		putData(Rolling.RESPONSETIME, "0", rtt);
+		putData(Resource.RESPONSETIME, "0", rtt);
 		
 		analyze("responseTime", "0", timeout, rtt);
 		
@@ -858,7 +867,7 @@ abstract public class ITAhMNode extends SNMPNode {
 			
 			value = processorData.getInt("hrProcessorLoad");
 			
-			this.putData(Rolling.HRPROCESSORLOAD, index, value);
+			this.putData(Resource.HRPROCESSORLOAD, index, value);
 			
 			analyze("hrProcessorEntry", index, 100, value);
 			
@@ -919,7 +928,7 @@ abstract public class ITAhMNode extends SNMPNode {
 				continue;
 			}
 			
-			this.putData(Rolling.HRSTORAGEUSED, index, value);
+			this.putData(Resource.HRSTORAGEUSED, index, value);
 			
 			switch(type) {
 			case 2:
@@ -976,25 +985,19 @@ abstract public class ITAhMNode extends SNMPNode {
 	}
 	
 	private void parseInterface() throws IOException {
-		JSONObject
-			lastEntry = this.data.has("ifEntry")? this.data.getJSONObject("ifEntry"): null,
-			indexData, lastData;
+		JSONObject lastEntry = this.data.has("ifEntry")? this.data.getJSONObject("ifEntry"): null;
 		
 		if (lastEntry == null) {
 			return;
 		}
 		
-		long 
-			iValue, oValue,
-			rate,
-			capacity,
-			duration,
-			status;
+		JSONObject
+			indexData, lastData;
 		TopTable.Value
 			max = null,
 			maxRate = null,
 			maxErr = null;
-		
+			
 		for(String index: this.ifEntry.keySet()) {
 			// 특정 index가 새로 생성되었다면 보관된 값이 없을수도 있음.
 			if (!lastEntry.has(index)) {
@@ -1003,189 +1006,166 @@ abstract public class ITAhMNode extends SNMPNode {
 			
 			lastData = lastEntry.getJSONObject(index);
 			indexData = this.ifEntry.get(index);
-			capacity = 0;
 			
-			// ifAdminStatus를 제공하지 않거나 비활성 인터페이스는 파싱하지 않는다.
-			// administratively 상태가 변하는 것은 체크하지 않는다.
-			if (!indexData.has("ifAdminStatus") || indexData.getInt("ifAdminStatus") != 1) {
-				continue;
-			}
-			
-			// ifOperStatus를 제공하지 않는 인터페이스는 파싱하지 않는다.
-			if (!indexData.has("ifOperStatus")) {
-				continue;
-			}
-			
-			status = indexData.getInt("ifOperStatus");
-			
-			if (lastData.has("ifOperStatus")) {
-				if (lastData.getInt("ifOperStatus") != status
-					&& this.updown.containsKey(index)
-					&& this.updown.get(index)) {
-					String name = this.nodeManager.getNodeName(super.id);
+			if (!indexData.has("ifAdminStatus")
+					|| indexData.getInt("ifAdminStatus") != 1
+					||!indexData.has("ifOperStatus")) {
+					// ifAdminStatus를 제공하지 않거나 비활성 인터페이스는 파싱하지 않는다.
+					// ifOperStatus를 제공하지 않는 인터페이스는 파싱하지 않는다.
+					continue;
+				}
+				
+				long status = indexData.getInt("ifOperStatus");
+				
+				// 연결이 없는 인터페이스는 파싱하지 않는다.
+				if (status != 1) {
+					continue;
+				}
+				
+				long capacity = 0;
+				
+				//custom speed가 있는 경우
+				if (this.speed.containsKey(index)) {
+					capacity = this.speed.get(index);
+				}
+				else if (indexData.has("ifHighSpeed")) {
+					capacity = indexData.getLong("ifHighSpeed");
+				}
+				else if (indexData.has("ifSpeed")) {
+					capacity = indexData.getLong("ifSpeed");
+				}
+				
+				if (capacity <= 0) {
+					continue;
+				}
+				
+				if (!indexData.has("timestamp") || !lastData.has("timestamp")) {
+					continue;
+				}
 					
-					Agent.event().put(new JSONObject()
-						.put("origin", "updown")
-						.put("id", super.id)
-						.put("name", name)
-						.put("status", status == 1? true: false)
-						.put("message"
-							, String.format("%s interface %s %s",
-								name,
-								indexData.has("ifName")? indexData.getString("ifName"): index,
-								status==1? "up": "down"
-							)
-						), true
-					);
+				long duration = indexData.getLong("timestamp") - lastData.getLong("timestamp");
+				
+				if (duration <= 0) {
+					continue;
 				}
-			}
-			
-			// 연결이 없는 인터페이스는 파싱하지 않는다.
-			if (status != 1) {
-				continue;
-			}
-			
-			//custom speed가 있는 경우
-			if (this.speed.containsKey(index)) {
-				capacity = this.speed.get(index);
-			}
-			else if (indexData.has("ifHighSpeed")) {
-				capacity = indexData.getLong("ifHighSpeed");
-			}
-			else if (indexData.has("ifSpeed")) {
-				capacity = indexData.getLong("ifSpeed");
-			}
-			
-			if (capacity <= 0) {
-				continue;
-			}
-			
-			if (!indexData.has("timestamp") || !lastData.has("timestamp")) {
-				continue;
-			}
 				
-			duration = indexData.getLong("timestamp") - lastData.getLong("timestamp");
-			
-			if (duration <= 0) {
-				continue;
-			}
-				
-			if (indexData.has("ifInErrors") && lastData.has("ifInErrors")) {
-				long value = indexData.getInt("ifInErrors") - lastData.getInt("ifInErrors");
-				
-				indexData.put("ifInErrors", value);
-				
-				this.putData(Rolling.IFINERRORS, index, value);
-				
-				if (maxErr == null || maxErr.value < value) {
-					maxErr = new TopTable.Value(value, -1, index);
+				if (lastData.has("ifOperStatus")) {
+					if (lastData.getInt("ifOperStatus") != status
+						&& this.updown.containsKey(index)
+						&& this.updown.get(index)) {
+						String name = this.nodeManager.getNodeName(super.id);
+						
+						Agent.event().put(new JSONObject()
+							.put("origin", "updown")
+							.put("id", super.id)
+							.put("name", name)
+							.put("status", status == 1? true: false)
+							.put("message"
+								, String.format("%s interface %s %s",
+									name,
+									indexData.has("ifName")? indexData.getString("ifName"): index,
+									status==1? "up": "down"
+								)
+							), true
+						);
+					}
 				}
-			}
-			
-			if (indexData.has("ifOutErrors") && lastData.has("ifOutErrors")) {
-				long value = indexData.getInt("ifOutErrors") - lastData.getInt("ifOutErrors");
 				
-				indexData.put("ifOutErrors", value);
-				
-				this.putData(Rolling.IFOUTERRORS, index, value);
-				
-				if (maxErr == null || maxErr.value < value) {
-					maxErr = new TopTable.Value(value, -1, index);
-				}
-			}
-			
-			iValue = -1;
-			
-			if (indexData.has("ifHCInOctets") && lastData.has("ifHCInOctets")) {
-				iValue = indexData.getLong("ifHCInOctets") - lastData.getLong("ifHCInOctets");
-				
-				if (iValue > capacity) {
-					indexData.put("ifHCInOctets", lastData.getLong("ifHCInOctets") + capacity);
+				for (String resource : new String [] {"ifInErrors", "ifOutErrors"}) {
+					long value = indexData.getInt(resource) - lastData.getInt(resource);
 					
-					iValue = capacity;
-				}
-			}
-			else if (indexData.has("ifInOctets") && lastData.has("ifInOctets")) {
-				iValue = indexData.getLong("ifInOctets") - lastData.getLong("ifInOctets");
-				
-				if (iValue > capacity) {
-					indexData.put("ifInOctets", lastData.getLong("ifInOctets") + capacity);
+					indexData.put(resource, value);
 					
-					iValue = capacity;
-				}
-			}
-			
-			if (iValue  > -1) {
-				iValue = iValue *8000 / duration;
-				
-				indexData.put("ifInBPS", iValue);
-				
-				this.putData(Rolling.IFINOCTETS, index, iValue);
-				
-				rate = iValue*100L / capacity;
-				
-				if (max == null ||
-					max.value < iValue ||
-					max.value == iValue && max.rate < rate) {
-					max = new TopTable.Value(iValue, rate, index);
-				}
-				
-				if (maxRate == null ||
-					maxRate.rate < rate ||
-					maxRate.rate == rate && maxRate.value < iValue) {
-					maxRate = new TopTable.Value(iValue, rate, index);
-				}
-			}
-			
-			oValue = -1;
-			
-			if (indexData.has("ifHCOutOctets") && lastData.has("ifHCOutOctets")) {
-				oValue = indexData.getLong("ifHCOutOctets") - lastData.getLong("ifHCOutOctets");
-				
-				if (oValue > capacity) {
-					indexData.put("ifHCOutOctets", lastData.getLong("ifHCOutOctets") + capacity);
+					putData(Resource.valueof(resource), index, value);
 					
-					oValue = capacity;
+					if (maxErr == null || maxErr.value < value) {
+						maxErr = new TopTable.Value(value, -1, index);
+					}
 				}
-			}
-			else if (indexData.has("ifOutOctets") && lastData.has("ifOutOctets")) {
-				oValue = indexData.getLong("ifOutOctets") - lastData.getLong("ifOutOctets");
 				
-				if (oValue > capacity) {
-					indexData.put("ifOutOctets", lastData.getLong("ifOutOctets") + capacity);
+				long rate;
+				long iValue = -1;
+				
+				for (String resource : new String [] {"ifHCInOctets", "ifInOctets"}) {
+					if (indexData.has(resource) && lastData.has(resource)) {
+						iValue = indexData.getLong(resource) - lastData.getLong(resource);
+						
+						if (iValue *8000 /duration > capacity) {
+							iValue = capacity /8000 * duration;
+							
+							indexData.put(resource, lastData.getLong(resource) + iValue);
+						}
+						
+						break;
+					}
+				}
+				
+				if (iValue  > -1) {
+					iValue = iValue *8000 / duration;
 					
-					oValue = capacity;
+					indexData.put("ifInBPS", iValue);
+					
+					putData(Resource.IFINBPS, index, iValue);
+					
+					rate = iValue *100L / capacity;
+					
+					if (max == null ||
+						max.value < iValue ||
+						max.value == iValue && max.rate < rate) {
+						max = new TopTable.Value(iValue, rate, index);
+					}
+					
+					if (maxRate == null ||
+						maxRate.rate < rate ||
+						maxRate.rate == rate && maxRate.value < iValue) {
+						maxRate = new TopTable.Value(iValue, rate, index);
+					}
 				}
-			}
-			
-			if (oValue > -1) {
-				oValue = oValue *8000 / duration;
 				
-				indexData.put("ifOutBPS", oValue);
+				long oValue = -1;
 				
-				this.putData(Rolling.IFOUTOCTETS, index, oValue);
-				
-				rate = oValue*100L / capacity;
-				
-				if (max == null ||
-					max.value < oValue ||
-					max.value == oValue && max.rate < rate) {
-					max = new TopTable.Value(oValue, rate, index);
+				for (String resource : new String [] {"ifHCOutOctets", "ifOutOctets"}) {
+					if (indexData.has(resource) && lastData.has(resource)) {
+						oValue = indexData.getLong(resource) - lastData.getLong(resource);
+						
+						if (oValue *8000 /duration > capacity) {
+							oValue = capacity /8000 * duration;
+							
+							indexData.put(resource, lastData.getLong(resource) + oValue);
+						}
+						
+						break;
+					}
 				}
 				
-				if (maxRate == null ||
-					maxRate.rate < rate ||
-					maxRate.rate == rate && maxRate.value < oValue) {
-					maxRate = new TopTable.Value(oValue, rate, index);
+				if (oValue > -1) {
+					oValue = oValue *8000 / duration;
+					
+					indexData.put("ifOutBPS", oValue);
+					
+					this.putData(Resource.IFOUTBPS, index, oValue);
+					
+					rate = oValue *100L / capacity;
+					
+					if (max == null ||
+						max.value < oValue ||
+						max.value == oValue && max.rate < rate) {
+						max = new TopTable.Value(oValue, rate, index);
+					}
+					
+					if (maxRate == null ||
+						maxRate.rate < rate ||
+						maxRate.rate == rate && maxRate.value < oValue) {
+						maxRate = new TopTable.Value(oValue, rate, index);
+					}
 				}
-			}
-		
 			
-			long value = Math.max(iValue, oValue);
-			
-			if (value > -1) {					
-				analyze("ifEntry", index, capacity, value);
-			}
+				
+				long value = Math.max(iValue, oValue);
+				
+				if (value > -1) {					
+					analyze("ifEntry", index, capacity, value);
+				}		
 		}
 		
 		if (max != null) {

@@ -143,18 +143,8 @@ public class Search extends Command implements Runnable, ResponseListener {
 					response.getErrorStatus() == SnmpConstants.SNMP_ERROR_SUCCESS) {
 					((Snmp)source).cancel(event.getRequest(), this);
 					//Net Search의 결과 이더라도 base가 존재할 수 있고 심지어 Node가 존재 할 수도 있다.
-					
-					String id = Agent.node().onSearch(args.ip, args.profile);
-				
-					if (id != null) {
-						Agent.event().put(new JSONObject()
-							.put("origin", "test")
-							.put("id", id)
-							.put("name", "System")
-							.put("status", true)
-							.put("protocol", "snmp")
-							.put("message", String.format("%s SNMP 탐지 성공", args.ip)), false);
-					}
+
+					Agent.node().onSearch(args.ip, args.profile);
 				}
 			}
 		} catch (IOException ioe) {

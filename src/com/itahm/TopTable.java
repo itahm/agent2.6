@@ -183,10 +183,10 @@ public class TopTable {
 		public int compare(String ip1, String ip2) {
 			Value v1 = map.get(ip1),
 				v2 = map.get(ip2);
-			long l = v2.value - v1.value;
+			long l = v2.rate - v1.rate;
 				
 			if (l == 0) {
-				l = v2.rate - v1.rate;
+				l = v2.value - v1.value;
 			}
 			
 			return l > 0? 1: l < 0? -1: 0;

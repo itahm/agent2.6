@@ -2,6 +2,8 @@ package com.itahm;
 
 import java.io.IOException;
 import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.net.Socket;
 
 import org.snmp4j.CommunityTarget;
 import org.snmp4j.PDU;
@@ -19,119 +21,205 @@ import org.snmp4j.smi.VariableBinding;
 
 import com.itahm.json.JSONObject;
 
-public class TempNode implements Runnable {
-	private final Thread thread = new Thread(this);
-	private final String id;
-	private final String ip;
+public class TempNode {
+	private final Thread thread;
 	
-	public TempNode(String id, String ip) {
-		this.id = id;
-		this.ip = ip;
-		
-		this.thread.setName("ITAhM TempNode");
-		this.thread.setDaemon(true);
-		this.thread.start();
+	enum Protocol {
+		ICMP, TCP, SNMP;
 	}
 	
-	@Override
-	public void run() {
-		JSONObject
-			table = Agent.db().get("profile").json(),
-			event = new JSONObject()
-				.put("origin", "test")
-				.put("id", this.id)
-				.put("name", "System")
-				.put("protocol", "snmp"),
-			profile;
-		Target target;
-		PDU request;
-		String name;
-		UdpAddress udp;
-		int version;
+	public static abstract class Tester implements Runnable {
+		public final String id;
+		public final String ip;
 		
-		for (Object key : table.keySet()) {
-			name = (String)key;
+		public Tester (String id, String ip) {
+			this.id = id;
+			this.ip = ip;
+		}
+	}
+
+	public TempNode(String id, String ip, Protocol protocol) {
+		switch(protocol) {
+		case ICMP:
+			this.thread = new Thread(new ICMP(id, ip));
 			
-			profile = table.getJSONObject(name);
+			break;
+		case TCP:
+			this.thread  = new Thread(new TCP(id, ip));
 			
-			switch(profile.getString("version").toLowerCase()) {
-			case "v3":
-				target = new UserTarget();
-				
-				target.setSecurityName(new OctetString(profile.getString("user")));
-				target.setSecurityLevel(profile.getInt("level"));
-				
-				request = new ScopedPDU();
-				
-				version = SnmpConstants.version3;
-				
-				break;
-			case "v2c":
-				target = new CommunityTarget();
-					
-				((CommunityTarget)target).setCommunity(new OctetString(profile.getString("community")));
-				
-				request = new PDU();
-				
-				version = SnmpConstants.version2c;
-				
-				break;
-				
-			default:
-				target = new CommunityTarget();
-				
-				((CommunityTarget)target).setCommunity(new OctetString(profile.getString("community")));
-				
-				request = new PDU();
-				
-				version = SnmpConstants.version1;	
-			}
-			
-			target.setVersion(version);
-			target.setRetries(0);
-			target.setTimeout(Agent.Config.timeout());
-			
-			request.setType(PDU.GETNEXT);
-			request.add(new VariableBinding(ITAhMNode.OID_mib2));
-			
-			udp = new UdpAddress(profile.getInt("udp"));
-				
-			try {
-				udp.setInetAddress(InetAddress.getByName(this.ip));
-				
-				target.setAddress(udp);
-				
-				request.setRequestID(new Integer32(0));
-				
-				if (onResponse(Agent.node().send(request, target))) {
+			break;
+		case SNMP:
+			this.thread  = new Thread(new SNMP(id, ip));
 		
-					Agent.node().onDetect(this.ip, name);
-					
-					Agent.event().put(event.put("status", true)
-						.put("message",
-							String.format("%s SNMP 등록 성공.", Agent.node().getNodeName(this.id))), false);
-					
-					return;
-				}
-			} catch (IOException e) {
-				System.err.print(e);
-			}
+			break;
+		default:
+			this.thread  = null;
+		}
+		
+		if (this.thread != null) {
+			this.thread.setName("ITAhM TempNode");
+			this.thread.setDaemon(true);
+			this.thread.start();
+		}
+	}
+	
+	public static class ICMP extends Tester {
+		public ICMP(String id, String ip) {
+			super(id, ip);
 		}
 
-		Agent.event().put(event.put("status", false)
-			.put("message", String.format("%s SNMP 등록 실패.", Agent.node().getNodeName(this.id))), false);
+		@Override
+		public void run() {
+			String [] address = ip.split(":");
+			
+			if (address.length == 2) {
+				try (Socket socket = new Socket()) {
+					socket.connect(new InetSocketAddress(
+						InetAddress.getByName(address[0]),
+						Integer.parseInt(address[1])), Agent.Config.timeout());
+					
+					Agent.node().onDetect(this, true);
+					
+					return;
+				} catch (IOException ioe) {
+				}
+			}
+			
+			try {
+				Agent.node().onDetect(this, false);
+			} catch (IOException ioe) {
+				System.err.print(ioe);
+			}
+		}
 	}
 	
-	public boolean onResponse(ResponseEvent event) {
-		Object source = event.getSource();
-		PDU response = event.getResponse();
-		Address address = event.getPeerAddress();
+	public static class TCP extends Tester {
+		public TCP(String id, String ip) {
+			super(id, ip);
+		}
 		
-		return (event != null &&
-			!(source instanceof Snmp.ReportHandler) &&
-			(address instanceof UdpAddress) &&
-			((UdpAddress)address).getInetAddress().getHostAddress().equals(this.ip) &&
-			response != null &&
-			response.getErrorStatus() == SnmpConstants.SNMP_ERROR_SUCCESS);
+		@Override
+		public void run() {
+			try {
+				if (InetAddress.getByName(super.ip).isReachable(Agent.Config.timeout())) {
+					Agent.node().onDetect(this, true);
+					
+					return;
+				};
+			} catch (IOException e) {
+			}
+			
+			try {
+				Agent.node().onDetect(this, false);
+			} catch (IOException ioe) {
+				System.err.print(ioe);
+			}
+		}
 	}
+	
+	public static class SNMP extends Tester {
+		public String profile;
+		
+		public SNMP(String id, String ip) {
+			super(id, ip);
+		}
+		
+		boolean onResponse(ResponseEvent event) {
+			Object source = event.getSource();
+			PDU response = event.getResponse();
+			Address address = event.getPeerAddress();
+			
+			return (event != null &&
+				!(source instanceof Snmp.ReportHandler) &&
+				(address instanceof UdpAddress) &&
+				((UdpAddress)address).getInetAddress().getHostAddress().equals(this.ip) &&
+				response != null &&
+				response.getErrorStatus() == SnmpConstants.SNMP_ERROR_SUCCESS);
+		}
+		
+		@Override
+		public void run() {
+			JSONObject
+				table = Agent.db().get("profile").json(),
+				profile;
+			Target target;
+			PDU request;
+			String name;
+			UdpAddress udp;
+			int version;
+			
+			for (Object key : table.keySet()) {
+				name = (String)key;
+				
+				profile = table.getJSONObject(name);
+				
+				switch(profile.getString("version").toLowerCase()) {
+				case "v3":
+					target = new UserTarget();
+					
+					target.setSecurityName(new OctetString(profile.getString("user")));
+					target.setSecurityLevel(profile.getInt("level"));
+					
+					request = new ScopedPDU();
+					
+					version = SnmpConstants.version3;
+					
+					break;
+				case "v2c":
+					target = new CommunityTarget();
+						
+					((CommunityTarget)target).setCommunity(new OctetString(profile.getString("community")));
+					
+					request = new PDU();
+					
+					version = SnmpConstants.version2c;
+					
+					break;
+					
+				default:
+					target = new CommunityTarget();
+					
+					((CommunityTarget)target).setCommunity(new OctetString(profile.getString("community")));
+					
+					request = new PDU();
+					
+					version = SnmpConstants.version1;	
+				}
+				
+				target.setVersion(version);
+				target.setRetries(0);
+				target.setTimeout(Agent.Config.timeout());
+				
+				request.setType(PDU.GETNEXT);
+				request.add(new VariableBinding(ITAhMNode.OID_mib2));
+				
+				udp = new UdpAddress(profile.getInt("udp"));
+					
+				try {
+					udp.setInetAddress(InetAddress.getByName(this.ip));
+					
+					target.setAddress(udp);
+					
+					request.setRequestID(new Integer32(0));
+					
+					if (onResponse(Agent.node().send(request, target))) {
+						this.profile = name;
+						
+						Agent.node().onDetect(this, true);
+						
+						return;
+					}
+				} catch (IOException ioe) {
+					System.err.print(ioe);
+				}
+			}
+	
+			try {
+				Agent.node().onDetect(this, false);
+			} catch (IOException ioe) {
+				System.err.print(ioe);
+			}
+		}
+	}
+	
 }

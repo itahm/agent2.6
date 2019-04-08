@@ -35,7 +35,7 @@ public class Agent {
 		@Override
 		public void onComplete(long count, long elapse) {
 			if (count != 0) {
-				event().put(new JSONObject()
+				event.put(new JSONObject()
 					.put("origin", "system")
 					.put("name", "System")
 					.put("status", true)
@@ -136,8 +136,8 @@ public class Agent {
 			.send();
 	}
 	
-	public static JSONObject getEvent(long event) {
-		return null;
+	public static JSONObject getEvent(String id) {
+		return event.getEvent(id);
 	}
 	
 	public static Database db() {
@@ -260,7 +260,7 @@ public class Agent {
 			smtp = jsono;
 			
 			if (set) {
-				Agent.event().setSMTP(smtp);
+				event.setSMTP(smtp);
 			}
 		}
 		
@@ -316,7 +316,7 @@ public class Agent {
 			return top;
 		}
 		
-		public static long timeout() {
+		public static int timeout() {
 			return timeout;
 		}
 		
