@@ -2,6 +2,8 @@ package com.itahm;
 
 import java.io.IOException;
 import java.math.BigInteger;
+import java.net.InetAddress;
+import java.net.UnknownHostException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -44,7 +46,6 @@ public class NodeManager extends Snmp implements NodeListener {
 	private final Map<String, Node> map = new ConcurrentHashMap<>();
 	private final Map<String, String> index = new HashMap<>();
 	private final Table nodeTable;
-	private final Table posTable;
 	private final Table prfTable;
 	private final Table lineTable;
 	private final TopTable topTable = new TopTable();
@@ -57,7 +58,6 @@ public class NodeManager extends Snmp implements NodeListener {
 		this.snmp = dataRoot.resolve("snmp");
 		
 		this.nodeTable = Agent.db().get("node");
-		this.posTable = Agent.db().get("position");
 		this.prfTable = Agent.db().get("profile");
 		this.lineTable = Agent.db().get("line");
 		
@@ -69,7 +69,13 @@ public class NodeManager extends Snmp implements NodeListener {
 	
 	private void addIndex(JSONObject base) throws IOException {
 		if (base != null && base.has("ip")) {
-			this.index.put(base.getString("ip"), base.getString("id"));
+			String ip = base.getString("id");
+			try {
+				InetAddress.getByName(ip);
+				
+				this.index.put(base.getString("ip"), ip);
+			}
+			catch (UnknownHostException uhe) {} 
 		}
 	}
 	
@@ -192,9 +198,9 @@ public class NodeManager extends Snmp implements NodeListener {
 				.put("origin", "search")
 				.put("id", id)
 				.put("name", "System")
-				.put("status", true)     /************************************************/
-				.put("protocol", "snmp") /************************************************/
-				.put("message", String.format("%s SNMP 탐지 성공", ip.replace("121.189.227", "172.16.0")/*ip*/)), false);
+				.put("status", true)
+				.put("protocol", "snmp")
+				.put("message", String.format("%s SNMP 탐지 성공", ip)), false);
 		}
 	}
 	
@@ -325,34 +331,6 @@ public class NodeManager extends Snmp implements NodeListener {
 		}
 		
 		this.lineTable.save();
-		
-		if (base.has("role") && "group".equals(base.getString("role"))) {
-			JSONObject
-				pos = this.posTable.json().getJSONObject(id),
-				child;
-			String parent = null;
-			
-			if (pos.has("parent")) {
-				parent = pos.getString("parent");
-			}
-			
-			for (Object key : this.posTable.json().keySet()) {
-				child = this.posTable.json().getJSONObject((String)key);
-				
-				if (child.has("parent") && id.equals(child.getString("parent"))) {
-					if (parent != null) {
-						child.put("parent", parent);
-					}
-					else {
-						child.remove("parent");
-					}
-				}
-			}
-		}
-		
-		this.posTable.json().remove(id);
-		
-		this.posTable.save();
 	}
 	
 	public void addUSMUser(JSONObject profile) {
