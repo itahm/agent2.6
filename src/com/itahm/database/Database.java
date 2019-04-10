@@ -57,14 +57,6 @@ public class Database {
 				}
 				
 				break;
-			case "position":
-				if (table.json().length() == 0){
-					table.json().put("position", new JSONObject());
-					
-					table.save();
-				}
-				
-				break;
 				
 			case "config":
 				if (table.json().length() == 0){
