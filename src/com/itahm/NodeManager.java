@@ -231,11 +231,23 @@ public class NodeManager extends Snmp implements NodeListener {
 				event.put("protocol", protocol = "snmp");
 			}
 			else if (tester instanceof TempNode.ICMP) {
+				base
+					.put("protocol", "icmp")
+					.put("status", true);
+			
+				this.nodeTable.save();
+			
 				node = new ICMPNode(this, tester.id, tester.ip);
 				
 				event.put("protocol", protocol = "icmp");
 			}
 			else if (tester instanceof TempNode.TCP) {
+				base
+					.put("protocol", "tcp")
+					.put("status", true);
+				
+				this.nodeTable.save();
+				
 				node = new TCPNode(this, tester.id, tester.ip);
 				
 				event.put("protocol", protocol = "tcp");
