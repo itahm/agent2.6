@@ -63,8 +63,8 @@ public class TempNode {
 		}
 	}
 	
-	public static class ICMP extends Tester {
-		public ICMP(String id, String ip) {
+	public static class TCP extends Tester {
+		public TCP(String id, String ip) {
 			super(id, ip);
 		}
 
@@ -93,8 +93,8 @@ public class TempNode {
 		}
 	}
 	
-	public static class TCP extends Tester {
-		public TCP(String id, String ip) {
+	public static class ICMP extends Tester {
+		public ICMP(String id, String ip) {
 			super(id, ip);
 		}
 		
