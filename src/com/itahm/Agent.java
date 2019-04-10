@@ -221,7 +221,7 @@ public class Agent {
 		private static int top = 5;
 		private static int timeout = 5000;
 		private static int retry = 2;
-		public final static String version = "3.0.1";
+		public final static String version = "3.0.2";
 		
 		public static void health(int i, boolean b) {
 			timeout = Byte.toUnsignedInt((byte)(i & 0x0f)) *1000;
