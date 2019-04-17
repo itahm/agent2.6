@@ -213,7 +213,7 @@ public class Agent {
 		private static int saveInterval = 1; //minutes
 		private static long snmpInterval = 10000; // milliseconds
 		private static JSONObject smtp = null;
-		private static HTTPListener listener = null;
+		private static Server server = null;
 		private static long limit = 0;
 		private static int store = 0;
 		private static File root = null;
@@ -221,7 +221,7 @@ public class Agent {
 		private static int top = 5;
 		private static int timeout = 5000;
 		private static int retry = 2;
-		public final static String version = "3.0.4";
+		public final static String version = "3.0.5";
 		
 		public static void health(int i, boolean b) {
 			timeout = Byte.toUnsignedInt((byte)(i & 0x0f)) *1000;
@@ -268,12 +268,12 @@ public class Agent {
 			return smtp;
 		}
 		
-		public static void listener(HTTPListener httpl) {
-			listener = httpl;
+		public static void server(Server itahm) {
+			server = itahm;
 		}
 		
-		public static HTTPListener listener() {
-			return listener;
+		public static HTTPListener server() {
+			return server;
 		}
 		
 		public static void limit(long l) {

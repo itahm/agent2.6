@@ -160,7 +160,7 @@ public class EventManager extends DailyFile {
 			}
 		}
 		
-		HTTPListener listener = Agent.Config.listener();
+		HTTPListener listener = Agent.Config.server();
 		
 		if (listener != null) {
 			listener.sendEvent(event, broadcast);
